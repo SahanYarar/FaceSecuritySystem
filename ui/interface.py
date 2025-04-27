@@ -27,13 +27,13 @@ class Interface:
         """Update the system status."""
         self.status = status
         self.status_color = color
-        logging.info(f"Status updated: {status}")
+       # logging.info(f"Status updated: {status}")
 
     def update_liveness(self, liveness, color):
         """Update the liveness status."""
         self.liveness = liveness
         self.liveness_color = color
-        logging.info(f"Liveness updated: {liveness}")
+       # logging.info(f"Liveness updated: {liveness}")
 
     def set_message(self, text, color=COLOR_GREEN, duration=3.0):
         """Ekranda geçici mesaj gösterir."""
@@ -41,7 +41,7 @@ class Interface:
         self.message_color = color
         self.message_time = time.time()
         self.message_duration = duration
-        logging.info(f"UI Mesaj: {text}")
+       # logging.info(f"UI Mesaj: {text}")
 
     def draw_ui(self, frame, mode, input_text, known_face_names, system_status):
         """Ana UI elemanlarını kare üzerine çizer."""

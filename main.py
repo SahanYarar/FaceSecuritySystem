@@ -358,7 +358,7 @@ class DoorSecuritySystem:
                             if best_match_percentage > 45.0:
                                 self.face_tracker.update_recognition(face_descriptor, self.storage.get_known_faces(), self.face_processor)
                                 if self.face_tracker.stable_match_name:
-                                    self.system_status["status"] = f"Recognized: {self.face_tracker.stable_match_name} ({best_match_percentage:.1f}%)"
+                                    self.system_status["status"] = f"Recognized: {self.face_tracker.stable_match_name})"
                                     self.system_status["color"] = COLOR_GREEN
                                     # Start liveness check if not already checking
                                     if not self.liveness_detector.is_checking:
