@@ -243,14 +243,28 @@ class DoorSecuritySystem:
                              self.face_tracker.last_known_rect.right(),
                              self.face_tracker.last_known_rect.bottom())
             
+            # Get current recognition percentage
+            best_match_name = None
+            best_match_percentage = 0.0
+            if self.face_tracker.candidate_name:
+                for name, known_descriptor in self.storage.get_known_faces().items():
+                    if name == self.face_tracker.candidate_name:
+                        percentage = self.face_processor.compare_faces(
+                            self.face_tracker.last_known_descriptor, 
+                            known_descriptor
+                        )
+                        best_match_percentage = percentage
+                        best_match_name = name
+                        break
+
             label = "Unknown"
             color = COLOR_RED
 
             if self.face_tracker.stable_match_name:
-                label = self.face_tracker.stable_match_name
+                label = f"{self.face_tracker.stable_match_name} ({best_match_percentage:.1f}%)"
                 color = COLOR_GREEN if self.liveness_detector.liveness_passed else COLOR_YELLOW
             elif self.face_tracker.candidate_name:
-                label = f"{self.face_tracker.candidate_name} ({self.face_tracker.recognition_streak_count}/{STREAK_THRESHOLD})"
+                label = f"{self.face_tracker.candidate_name} ({best_match_percentage:.1f}%)"
                 color = COLOR_YELLOW
 
             cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
@@ -262,7 +276,14 @@ class DoorSecuritySystem:
 
         try:
             known_names = list(self.storage.get_known_faces().keys())
-            self.interface.draw_ui(display_frame, self.current_mode, self.input_text, known_names, self.door_manager.system_status)
+            system_status = {
+                "status": self.system_status["status"],
+                "color": self.system_status["color"],
+                "liveness": self.system_status["liveness"],
+                "liveness_color": self.system_status["liveness_color"],
+                "action_handler": self.handle_ui_action
+            }
+            self.interface.draw_ui(display_frame, self.current_mode, self.input_text, known_names, system_status)
         except Exception as e:
             logging.error(f"UI drawing error: {e}")
             traceback.print_exc()
@@ -323,43 +344,48 @@ class DoorSecuritySystem:
                             continue
 
                         # Update face recognition
-                        is_recognized = self.face_tracker.update_recognition(face_descriptor, self.storage.get_known_faces(), self.face_processor)
+                        if face_descriptor is not None:
+                            # Get current recognition percentage
+                            best_match_name = None
+                            best_match_percentage = 0.0
+                            for name, known_descriptor in self.storage.get_known_faces().items():
+                                percentage = self.face_processor.compare_faces(face_descriptor, known_descriptor)
+                                if percentage > best_match_percentage:
+                                    best_match_percentage = percentage
+                                    best_match_name = name
 
-                        # Start liveness check if face is recognized and not already checking
-                        if self.face_tracker.candidate_name and not self.liveness_detector.is_checking:
-                            self.liveness_detector.start_checking()
-                            logging.info(f"Starting liveness check for {self.face_tracker.candidate_name}")
+                            # Update recognition status
+                            if best_match_percentage > 45.0:
+                                self.face_tracker.update_recognition(face_descriptor, self.storage.get_known_faces(), self.face_processor)
+                                if self.face_tracker.stable_match_name:
+                                    self.system_status["status"] = f"Recognized: {self.face_tracker.stable_match_name} ({best_match_percentage:.1f}%)"
+                                    self.system_status["color"] = COLOR_GREEN
+                                    # Start liveness check if not already checking
+                                    if not self.liveness_detector.is_checking:
+                                        self.liveness_detector.start_checking()
+                                else:
+                                    self.system_status["status"] = f"Verifying: {best_match_name} ({best_match_percentage:.1f}%)"
+                                    self.system_status["color"] = COLOR_YELLOW
+                            else:
+                                self.system_status["status"] = f"No match found ({best_match_percentage:.1f}%)"
+                                self.system_status["color"] = COLOR_RED
 
                         # Update liveness detection
                         self._update_liveness(landmarks)
 
-                        # Update status based on recognition and liveness
-                        if self.face_tracker.candidate_name:
-                            new_status = f"Recognized: {self.face_tracker.candidate_name}"
-                            new_color = COLOR_GREEN
-                            new_liveness = self.system_status["liveness"]
-                            new_liveness_color = self.system_status["liveness_color"]
-                        else:
-                            new_status = "Processing face..."
-                            new_color = COLOR_YELLOW
-                            new_liveness = "Waiting for recognition"
-                            new_liveness_color = COLOR_WHITE
                     else:
                         # No face detected
                         self.face_tracker.reset()
                         self.liveness_detector.reset()
-                        new_status = "No face detected"
-                        new_color = COLOR_RED
-                        new_liveness = "Waiting for face"
-                        new_liveness_color = COLOR_WHITE
+                        self.system_status["status"] = "No face detected"
+                        self.system_status["color"] = COLOR_RED
 
                     # Only update UI if status has changed or enough time has passed
-                    if (new_status != last_status or new_liveness != last_liveness or 
+                    if (self.system_status["status"] != last_status or 
                         current_time - status_update_time >= min_status_update_interval):
-                        self.interface.update_status(new_status, new_color)
-                        self.interface.update_liveness(new_liveness, new_liveness_color)
-                        last_status = new_status
-                        last_liveness = new_liveness
+                        self.interface.update_status(self.system_status["status"], self.system_status["color"])
+                        self.interface.update_liveness(self.system_status["liveness"], self.system_status["liveness_color"])
+                        last_status = self.system_status["status"]
                         status_update_time = current_time
 
                 self._draw_frame_elements(display_frame)

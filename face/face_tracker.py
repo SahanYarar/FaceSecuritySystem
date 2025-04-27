@@ -9,6 +9,7 @@ class FaceTracker:
         self.recognition_streak_count = 0
         self.stable_match_name = None
         self.last_known_rect = None
+        self.last_known_descriptor = None
         self.last_processed_landmarks = None
         self.scale_factor = 1.0
         self.last_detection_time = 0
@@ -22,34 +23,37 @@ class FaceTracker:
         self.recognition_streak_count = 0
         self.stable_match_name = None
         self.last_known_rect = None
+        self.last_known_descriptor = None
         self.last_processed_landmarks = None
         self.no_face_frames = 0
 
     def update_recognition(self, face_descriptor, known_faces, face_processor):
-        """Update face recognition state."""
+        """Update face recognition state using percentage-based verification."""
         if face_descriptor is None or not known_faces:
             # Only reset if we've had too many consecutive frames without a face
             if self.no_face_frames >= self.max_no_face_frames:
                 self.candidate_name = None
                 self.recognition_streak_count = 0
                 self.stable_match_name = None
+                self.last_known_descriptor = None
             return False
 
         # Reset no face counter since we found a face
         self.no_face_frames = 0
+        self.last_known_descriptor = face_descriptor
 
-        # Find best match
+        # Find best match using percentage
         best_match_name = None
-        best_match_distance = float('inf')
+        best_match_percentage = 0.0
 
         for name, known_descriptor in known_faces.items():
-            distance = face_processor.compare_faces(face_descriptor, known_descriptor)
-            if distance < best_match_distance:
-                best_match_distance = distance
+            percentage = face_processor.compare_faces(face_descriptor, known_descriptor)
+            if percentage > best_match_percentage:
+                best_match_percentage = percentage
                 best_match_name = name
 
-        # Check if match is good enough
-        if best_match_distance < RECOG_DIST_THRESH:
+        # Check if match percentage is good enough (e.g., > 45%)
+        if best_match_percentage > 45.0:
             if self.candidate_name == best_match_name:
                 self.recognition_streak_count += 1
             else:

@@ -217,11 +217,47 @@ class FaceProcessor:
             return None
 
     def compare_faces(self, face_descriptor1, face_descriptor2):
-        """İki yüz tanımlayıcısı arasındaki mesafeyi hesaplar."""
+        """Compare two face descriptors and return a similarity percentage."""
         if face_descriptor1 is None or face_descriptor2 is None:
-            return float('inf')
+            return 0.0  # Return 0% similarity for invalid descriptors
+        
         try:
-            return np.linalg.norm(face_descriptor1 - face_descriptor2)
+            # Calculate Euclidean distance
+            distance = np.linalg.norm(face_descriptor1 - face_descriptor2)
+            
+            # Convert distance to percentage (0-100)
+            # The maximum possible distance is around 1.0, so we use that as reference
+            percentage = max(0.0, (1.0 - distance) * 100)
+            return percentage
         except Exception as e:
-            logging.error(f"Yüz karşılaştırma hatası: {e}")
-            return float('inf') 
+            logging.error(f"Face comparison error: {e}")
+            return 0.0
+
+    def verify_face(self, frame, face_rect, landmarks, known_faces):
+        """Verify a face against known faces and return the best match with percentage."""
+        if landmarks is None or not known_faces:
+            return None, 0.0
+
+        try:
+            # Get face descriptor
+            face_descriptor = self.get_face_descriptor(frame, landmarks)
+            if face_descriptor is None:
+                return None, 0.0
+
+            # Find best matching face
+            best_match = None
+            best_percentage = 0.0
+
+            # Compare with all known faces
+            for name, known_descriptor in known_faces.items():
+                percentage = self.compare_faces(face_descriptor, known_descriptor)
+                
+                if percentage > best_percentage:
+                    best_percentage = percentage
+                    best_match = name
+
+            return best_match, best_percentage
+
+        except Exception as e:
+            logging.error(f"Face verification error: {e}")
+            return None, 0.0 
