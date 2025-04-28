@@ -60,7 +60,7 @@ class Interface:
         if mode == 'normal':
             liveness_text = self.liveness
             liveness_color = self.liveness_color
-            cv2.putText(frame, f"Canlilik: {liveness_text}", UI_LIVENESS_POS, cv2.FONT_HERSHEY_SIMPLEX, 0.6, liveness_color, 1, cv2.LINE_AA)
+            cv2.putText(frame, f"Liveness: {liveness_text}", UI_LIVENESS_POS, cv2.FONT_HERSHEY_SIMPLEX, 0.6, liveness_color, 2, cv2.LINE_AA)
 
         # Modlara Göre Butonlar ve Diğer Elemanlar
         button_x = UI_BUTTON_MARGIN

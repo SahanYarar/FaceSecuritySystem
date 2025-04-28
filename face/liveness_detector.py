@@ -98,32 +98,56 @@ class LivenessDetector:
         if not self.is_checking:
             return False, "Not checking"
 
+        # Timeout check
         if self.liveness_check_frame_counter > LIVENESS_TIMEOUT_FRAMES:
             self.is_checking = False
             return False, "Timeout"
 
-        if self.head_movement_ok is False:
-            return False, "No head movement"
-
-        if self.head_pose_variation_ok is False:
-            return False, "No pose variation"
-
+        # Check individual conditions
         blinks_ok = self.blinks_detected_count >= REQUIRED_BLINKS
-        head_move_ok = self.head_movement_ok is True
+        head_move_ok = self.head_movement_ok is True  # Must be True, not just not None
         look_lr_ok = self.looked_left and self.looked_right
 
+        # --- Failure Conditions (Priority) ---
+        # 1. Timeout (checked above)
+
+        # 2. Definite centroid immobility detected
+        if self.head_movement_ok is False:
+            logging.warning("Canlılık BAŞARISIZ: Kafa merkezi hareketi yetersiz!")
+            return False, "Başarısız (Hareketsiz?)"
+
+        # 3. Definite pose immobility detected (photo suspicion)
+        if self.head_pose_variation_ok is False:
+            logging.warning("Canlılık BAŞARISIZ: Genel poz değişimi çok düşük - FOTOĞRAF?")
+            return False, "Başarısız (Fotograf?)"
+
+        # --- Success Condition ---
+        # All required checks completed successfully?
+        # Note: Pose variation doesn't need to be OK, just not False (not a photo)
         if blinks_ok and head_move_ok and look_lr_ok:
             self.liveness_passed = True
-            self.is_checking = False
-            return True, "Passed"
+            logging.info(f"Canlılık kontrolü BAŞARILI (Blink: {blinks_ok}, Kafa Hareketi: {head_move_ok}, Sağa/Sola Bakma: {look_lr_ok})")
+            return True, "Geçildi"
 
-        status_parts = [
-            f"B:{self.blinks_detected_count}/{REQUIRED_BLINKS}",
-            f"HM:{'?' if self.head_movement_ok is None else ('OK' if head_move_ok else 'NO')}",
-            f"L/R:{'OK' if look_lr_ok else ('L' if self.looked_left else ('R' if self.looked_right else 'N'))}",
-            f"{self.liveness_check_frame_counter}/{LIVENESS_TIMEOUT_FRAMES}F"
-        ]
-        return False, f"Checking ({', '.join(status_parts)})"
+        # --- In Progress Status (Not yet Success or Failure) ---
+        else:
+            # Create detailed status display
+            status_parts = []
+            status_parts.append(f"B:{self.blinks_detected_count}/{REQUIRED_BLINKS}")  # Blink status
+            # Head movement status: ? (unknown), OK (passed), YOK (insufficient)
+            hm_status = "?" if self.head_movement_ok is None else ("OK" if self.head_movement_ok else "YOK")
+            status_parts.append(f"HM:{hm_status}")
+            # Look left/right status: N (none), L (left ok), R (right ok), OK (both ok)
+            lr_status = "N"
+            if self.looked_left and self.looked_right: lr_status = "OK"
+            elif self.looked_left: lr_status = "L->"  # Looked left, waiting for right
+            elif self.looked_right: lr_status = "<-R"  # Looked right, waiting for left
+            else: lr_status = "<->"  # Waiting for both
+            status_parts.append(f"L/R:{lr_status}")
+            # Timer status
+            status_parts.append(f"{self.liveness_check_frame_counter}/{LIVENESS_TIMEOUT_FRAMES}F")
+
+            return False, f"Kontrol ({', '.join(status_parts)})"
 
     def increment_frame_counter(self):
         """Increment the frame counter for timeout checking."""

@@ -218,9 +218,16 @@ class DoorSecuritySystem:
         # Check liveness status
         liveness_passed, liveness_status = self.liveness_detector.check_liveness()
         
-        # Update UI status
-        self.system_status["liveness"] = liveness_status
-        self.system_status["liveness_color"] = COLOR_GREEN if liveness_passed else COLOR_YELLOW
+        # Update UI status with clearer messages
+        if liveness_passed:
+            self.system_status["liveness"] = "✓ Canlılık Doğrulandı"
+            self.system_status["liveness_color"] = COLOR_GREEN
+        elif self.liveness_detector.is_checking:
+            self.system_status["liveness"] = liveness_status
+            self.system_status["liveness_color"] = COLOR_YELLOW
+        else:
+            self.system_status["liveness"] = "Yüz Tanıma Bekleniyor"
+            self.system_status["liveness_color"] = COLOR_WHITE
         
         # Update door manager status
         self.door_manager.update_status(liveness_status, self.system_status["liveness_color"])
@@ -257,22 +264,34 @@ class DoorSecuritySystem:
                         best_match_name = name
                         break
 
-            label = "Unknown"
-            color = COLOR_RED
-
-            if self.face_tracker.stable_match_name:
-                label = f"{self.face_tracker.stable_match_name} ({best_match_percentage:.1f}%)"
-                color = COLOR_GREEN if self.liveness_detector.liveness_passed else COLOR_YELLOW
-            elif self.face_tracker.candidate_name:
-                label = f"{self.face_tracker.candidate_name} ({best_match_percentage:.1f}%)"
-                color = COLOR_YELLOW
-
+            # Draw face rectangle
+            color = COLOR_GREEN if self.liveness_detector.liveness_passed else COLOR_YELLOW
             cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
-            font_scale = 0.6
-            thickness = 1
-            (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
-            text_y = y1 - 10 if y1 - 10 > h else y1 + h + 10
-            cv2.putText(display_frame, label, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness, cv2.LINE_AA)
+
+            # Prepare debug information
+            debug_info = {}
+            
+            # Recognition info
+            if self.face_tracker.stable_match_name:
+                debug_info["Name"] = f"{self.face_tracker.stable_match_name} ({best_match_percentage:.1f}%)"
+            elif self.face_tracker.candidate_name:
+                debug_info["Name"] = f"{self.face_tracker.candidate_name} ({best_match_percentage:.1f}%)"
+            else:
+                debug_info["Name"] = "Unknown"
+
+            # Liveness info
+            if self.liveness_detector.is_checking:
+                if self.liveness_detector.liveness_passed:
+                    debug_info["Liveness"] = "✓ Passed"
+                else:
+                    debug_info["Blinks"] = f"{self.liveness_detector.blinks_detected_count}/{REQUIRED_BLINKS}"
+
+            # Draw debug information
+            y_offset = y1 - 10
+            for key, value in debug_info.items():
+                cv2.putText(display_frame, f"{key}: {value}", (x1, y_offset),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR_WHITE, 2)
+                y_offset += 30
 
         try:
             known_names = list(self.storage.get_known_faces().keys())
@@ -382,10 +401,12 @@ class DoorSecuritySystem:
 
                     # Only update UI if status has changed or enough time has passed
                     if (self.system_status["status"] != last_status or 
+                        self.system_status["liveness"] != last_liveness or
                         current_time - status_update_time >= min_status_update_interval):
                         self.interface.update_status(self.system_status["status"], self.system_status["color"])
                         self.interface.update_liveness(self.system_status["liveness"], self.system_status["liveness_color"])
                         last_status = self.system_status["status"]
+                        last_liveness = self.system_status["liveness"]
                         status_update_time = current_time
 
                 self._draw_frame_elements(display_frame)
