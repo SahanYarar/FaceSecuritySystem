@@ -216,14 +216,14 @@ class DoorSecuritySystem:
         self.liveness_detector.update_pose(pose_angles, pv_check_result, current_yaw)
 
         # Check liveness status
-        liveness_passed, liveness_status = self.liveness_detector.check_liveness()
+        liveness_passed, liveness_data = self.liveness_detector.check_liveness()
         
-        # Use the status directly from LivenessDetector
-        self.system_status["liveness"] = self.liveness_detector.system_status["liveness"]
-        self.system_status["liveness_color"] = self.liveness_detector.system_status["liveness_color"]
+        # Update interface with liveness data
+        self.interface.update_liveness(liveness_data)
         
         # Update door manager status
-        self.door_manager.update_status(liveness_status, self.system_status["liveness_color"])
+        self.door_manager.update_status(liveness_data.get("status", "unknown"), 
+                                      self.interface.liveness_color)
 
         # Increment frame counter
         self.liveness_detector.increment_frame_counter()
@@ -323,7 +323,6 @@ class DoorSecuritySystem:
 
         # Add state tracking variables
         last_status = None
-        last_liveness = None
         status_update_time = time.time()
         min_status_update_interval = 0.5  # Minimum time between status updates
 
@@ -394,12 +393,12 @@ class DoorSecuritySystem:
 
                     # Only update UI if status has changed or enough time has passed
                     if (self.system_status["status"] != last_status or 
-                        self.system_status["liveness"] != last_liveness or
                         current_time - status_update_time >= min_status_update_interval):
                         self.interface.update_status(self.system_status["status"], self.system_status["color"])
-                        self.interface.update_liveness(self.system_status["liveness"], self.system_status["liveness_color"])
+                        # Get liveness data from the detector
+                        _, liveness_data = self.liveness_detector.check_liveness()
+                        self.interface.update_liveness(liveness_data)
                         last_status = self.system_status["status"]
-                        last_liveness = self.system_status["liveness"]
                         status_update_time = current_time
 
                 self._draw_frame_elements(display_frame)

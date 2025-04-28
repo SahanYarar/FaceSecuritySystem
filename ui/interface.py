@@ -29,11 +29,51 @@ class Interface:
         self.status_color = color
        # logging.info(f"Status updated: {status}")
 
-    def update_liveness(self, liveness, color):
-        """Update the liveness status."""
-        self.liveness = liveness
-        self.liveness_color = color
-       # logging.info(f"Liveness updated: {liveness}")
+    def update_liveness(self, liveness_data):
+        """Update the liveness status display."""
+        if not liveness_data:
+            self.liveness = "Waiting for Face Recognition"
+            self.liveness_color = COLOR_WHITE
+            return
+
+        status = liveness_data.get("status")
+        name = liveness_data.get("name", "Unknown")
+
+        if status == "not_checking":
+            self.liveness = "Waiting for Face Recognition"
+            self.liveness_color = COLOR_WHITE
+        elif status == "timeout":
+            self.liveness = f"{name}: Timeout"
+            self.liveness_color = COLOR_RED
+        elif status == "insufficient_head_movement":
+            self.liveness = f"{name}: Insufficient head movement!"
+            self.liveness_color = COLOR_RED
+        elif status == "low_pose_variation":
+            self.liveness = f"{name}: Low pose variation - PHOTO"
+            self.liveness_color = COLOR_RED
+        elif status == "passed":
+            self.liveness = f"{name}: Liveness check PASSED"
+            self.liveness_color = COLOR_GREEN
+        elif status == "in_progress":
+            # Create detailed status display
+            status_parts = []
+            status_parts.append(f"Blinks: {liveness_data['blinks']}/{liveness_data['required_blinks']}")
+            
+            # Head movement status
+            hm_status = "Waiting" if liveness_data['head_movement'] is None else ("OK" if liveness_data['head_movement'] else "Insufficient")
+            status_parts.append(f"Head Movement: {hm_status}")
+            
+            # Look left/right status
+            left_status = "OK" if liveness_data['looked_left'] else "Look left"
+            right_status = "OK" if liveness_data['looked_right'] else "Look right"
+            status_parts.append(f"Left Look: {left_status}")
+            status_parts.append(f"Right Look: {right_status}")
+            
+            # Timer status
+            status_parts.append(f"Time Remaining: {liveness_data['frames_remaining']} frames")
+
+            self.liveness = f"{name}: Liveness Check\n" + "\n".join(status_parts)
+            self.liveness_color = COLOR_YELLOW
 
     def set_message(self, text, color=COLOR_GREEN, duration=3.0):
         """Ekranda geçici mesaj gösterir."""
@@ -58,14 +98,12 @@ class Interface:
 
         # Canlılık Durumu (Sadece Normal Modda)
         if mode == 'normal':
-            liveness_text = self.liveness
-            liveness_color = self.liveness_color
             # Split the liveness text into lines and draw each line
-            lines = liveness_text.split('\n')
+            lines = self.liveness.split('\n')
             y_offset = UI_LIVENESS_POS[1]
             for line in lines:
                 cv2.putText(frame, line, (UI_LIVENESS_POS[0], y_offset),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, liveness_color, 2, cv2.LINE_AA)
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.liveness_color, 2, cv2.LINE_AA)
                 y_offset += 25  # Add some space between lines
 
         # Modlara Göre Butonlar ve Diğer Elemanlar
