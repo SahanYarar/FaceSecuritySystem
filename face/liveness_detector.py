@@ -105,12 +105,18 @@ class LivenessDetector:
                 logging.info(f"Liveness: Initial Yaw angle set to {self.initial_yaw:.1f} degrees")
 
             if self.initial_yaw is not None and current_yaw is not None:
-                if not self.looked_left and current_yaw < self.initial_yaw - LOOK_LEFT_RIGHT_ANGLE_THRESH:
+                # Calculate yaw difference from initial position
+                yaw_diff = current_yaw - self.initial_yaw
+                
+                # Check for left turn (negative yaw difference)
+                if not self.looked_left and yaw_diff < -LOOK_LEFT_RIGHT_ANGLE_THRESH:
                     self.looked_left = True
-                    logging.info(f"Liveness: Looked left detected (Yaw: {current_yaw:.1f})")
-                if not self.looked_right and current_yaw > self.initial_yaw + LOOK_LEFT_RIGHT_ANGLE_THRESH:
+                    logging.info(f"Liveness: Looked left detected (Yaw: {current_yaw:.1f}, Diff: {yaw_diff:.1f})")
+                
+                # Check for right turn (positive yaw difference)
+                if not self.looked_right and yaw_diff > LOOK_LEFT_RIGHT_ANGLE_THRESH:
                     self.looked_right = True
-                    logging.info(f"Liveness: Looked right detected (Yaw: {current_yaw:.1f})")
+                    logging.info(f"Liveness: Looked right detected (Yaw: {current_yaw:.1f}, Diff: {yaw_diff:.1f})")
 
     def check_liveness(self):
         """Check if all liveness requirements are met."""
@@ -123,7 +129,8 @@ class LivenessDetector:
                 "head_movement": self.head_movement_ok,
                 "looked_left": self.looked_left,
                 "looked_right": self.looked_right,
-                "frames_remaining": LIVENESS_TIMEOUT_FRAMES - self.liveness_check_frame_counter
+                "frames_remaining": LIVENESS_TIMEOUT_FRAMES - self.liveness_check_frame_counter,
+                "current_yaw": self.initial_yaw if self.initial_yaw is not None else None
             }
 
         # Timeout check
