@@ -218,16 +218,9 @@ class DoorSecuritySystem:
         # Check liveness status
         liveness_passed, liveness_status = self.liveness_detector.check_liveness()
         
-        # Update UI status with clearer messages
-        if liveness_passed:
-            self.system_status["liveness"] = "✓ Canlılık Doğrulandı"
-            self.system_status["liveness_color"] = COLOR_GREEN
-        elif self.liveness_detector.is_checking:
-            self.system_status["liveness"] = liveness_status
-            self.system_status["liveness_color"] = COLOR_YELLOW
-        else:
-            self.system_status["liveness"] = "Yüz Tanıma Bekleniyor"
-            self.system_status["liveness_color"] = COLOR_WHITE
+        # Use the status directly from LivenessDetector
+        self.system_status["liveness"] = self.liveness_detector.system_status["liveness"]
+        self.system_status["liveness_color"] = self.liveness_detector.system_status["liveness_color"]
         
         # Update door manager status
         self.door_manager.update_status(liveness_status, self.system_status["liveness_color"])

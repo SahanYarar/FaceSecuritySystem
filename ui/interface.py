@@ -60,7 +60,13 @@ class Interface:
         if mode == 'normal':
             liveness_text = self.liveness
             liveness_color = self.liveness_color
-            cv2.putText(frame, f"Liveness: {liveness_text}", UI_LIVENESS_POS, cv2.FONT_HERSHEY_SIMPLEX, 0.6, liveness_color, 2, cv2.LINE_AA)
+            # Split the liveness text into lines and draw each line
+            lines = liveness_text.split('\n')
+            y_offset = UI_LIVENESS_POS[1]
+            for line in lines:
+                cv2.putText(frame, line, (UI_LIVENESS_POS[0], y_offset),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, liveness_color, 2, cv2.LINE_AA)
+                y_offset += 25  # Add some space between lines
 
         # Modlara Göre Butonlar ve Diğer Elemanlar
         button_x = UI_BUTTON_MARGIN

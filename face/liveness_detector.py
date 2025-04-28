@@ -4,7 +4,8 @@ from utils.helpers import handle_error
 from common.constants import (
     EAR_THRESHOLD, EAR_CONSEC_FRAMES, REQUIRED_BLINKS,
     LIVENESS_TIMEOUT_FRAMES, HEAD_MOVEMENT_FRAMES,
-    POSE_HISTORY_FRAMES, LOOK_LEFT_RIGHT_ANGLE_THRESH
+    POSE_HISTORY_FRAMES, LOOK_LEFT_RIGHT_ANGLE_THRESH,
+    COLOR_WHITE, COLOR_RED, COLOR_GREEN, COLOR_YELLOW
 )
 
 class LivenessDetector:
@@ -21,6 +22,11 @@ class LivenessDetector:
         self.looked_left = False
         self.looked_right = False
         self.is_checking = False
+        self.system_status = {
+            "liveness": "Yüz Tanima Bekleniyor",
+            "liveness_color": COLOR_WHITE
+        }
+        self.stable_match_name = None
 
     def reset(self):
         """Reset all liveness detection state."""
@@ -36,12 +42,25 @@ class LivenessDetector:
         self.looked_left = False
         self.looked_right = False
         self.is_checking = False
+        self.system_status = {
+            "liveness": "Yüz Tanima Bekleniyor",
+            "liveness_color": COLOR_WHITE
+        }
 
     def start_checking(self):
         """Start a new liveness check."""
         self.reset()
         self.is_checking = True
         logging.info("Starting new liveness check")
+        self.system_status["liveness"] = "Kontrol Başlatıldı"
+        self.system_status["liveness_color"] = COLOR_YELLOW
+
+    def set_stable_match_name(self, name):
+        """Set the name of the person being verified."""
+        self.stable_match_name = name
+        if self.is_checking:
+            self.system_status["liveness"] = f"{name}: Kontrol Ediliyor"
+            self.system_status["liveness_color"] = COLOR_YELLOW
 
     def update_ear(self, ear_value):
         """Update eye aspect ratio based liveness detection."""
@@ -101,53 +120,70 @@ class LivenessDetector:
         # Timeout check
         if self.liveness_check_frame_counter > LIVENESS_TIMEOUT_FRAMES:
             self.is_checking = False
-            return False, "Timeout"
+            self.system_status["liveness"] = f"{self.stable_match_name}: Zaman Aşımı"
+            self.system_status["liveness_color"] = COLOR_RED
+            return False, self.system_status["liveness"]
 
-        # Check individual conditions
+        # --- Decision Making Phase ---
+        # Get current states
         blinks_ok = self.blinks_detected_count >= REQUIRED_BLINKS
         head_move_ok = self.head_movement_ok is True  # Must be True, not just not None
-        look_lr_ok = self.looked_left and self.looked_right
+        look_lr_ok = self.looked_left and self.looked_right  # Both left and right must be checked
 
         # --- Failure Conditions (Priority) ---
         # 1. Timeout (checked above)
 
         # 2. Definite centroid immobility detected
         if self.head_movement_ok is False:
-            logging.warning("Canlılık BAŞARISIZ: Kafa merkezi hareketi yetersiz!")
-            return False, "Başarısız (Hareketsiz?)"
+            logging.warning(f"Canlilik BAŞARISIZ: {self.stable_match_name} (Sebep: Kafa merkezi hareketi yetersiz!)")
+            self.system_status["liveness"] = f"{self.stable_match_name}: Kafa merkezi hareketi YETERSİZ!"
+            self.system_status["liveness_color"] = COLOR_RED
+            self.reset()
+            return False, self.system_status["liveness"]
 
         # 3. Definite pose immobility detected (photo suspicion)
         if self.head_pose_variation_ok is False:
-            logging.warning("Canlılık BAŞARISIZ: Genel poz değişimi çok düşük - FOTOĞRAF?")
-            return False, "Başarısız (Fotograf?)"
+            logging.warning(f"Canlilik BAŞARISIZ: {self.stable_match_name} (Sebep: Genel poz değişimi çok düşük - FOTOĞRAF)")
+            self.system_status["liveness"] = f"{self.stable_match_name}: Genel poz değişimi çok düşük - FOTOĞRAF"
+            self.system_status["liveness_color"] = COLOR_RED
+            self.reset()
+            return False, self.system_status["liveness"]
 
         # --- Success Condition ---
         # All required checks completed successfully?
         # Note: Pose variation doesn't need to be OK, just not False (not a photo)
         if blinks_ok and head_move_ok and look_lr_ok:
             self.liveness_passed = True
-            logging.info(f"Canlılık kontrolü BAŞARILI (Blink: {blinks_ok}, Kafa Hareketi: {head_move_ok}, Sağa/Sola Bakma: {look_lr_ok})")
-            return True, "Geçildi"
+            logging.info(f"Canlilik kontrolü BAŞARILI: {self.stable_match_name} (Blink: {blinks_ok}, Kafa Hareketi: {head_move_ok}, Sağa/Sola Bakma: {look_lr_ok})")
+            self.system_status["liveness"] = f"{self.stable_match_name}: Canlilik kontrolü BAŞARILI"
+            self.system_status["liveness_color"] = COLOR_GREEN
+            return True, self.system_status["liveness"]
 
         # --- In Progress Status (Not yet Success or Failure) ---
         else:
             # Create detailed status display
             status_parts = []
-            status_parts.append(f"B:{self.blinks_detected_count}/{REQUIRED_BLINKS}")  # Blink status
-            # Head movement status: ? (unknown), OK (passed), YOK (insufficient)
-            hm_status = "?" if self.head_movement_ok is None else ("OK" if self.head_movement_ok else "YOK")
-            status_parts.append(f"HM:{hm_status}")
-            # Look left/right status: N (none), L (left ok), R (right ok), OK (both ok)
-            lr_status = "N"
-            if self.looked_left and self.looked_right: lr_status = "OK"
-            elif self.looked_left: lr_status = "L->"  # Looked left, waiting for right
-            elif self.looked_right: lr_status = "<-R"  # Looked right, waiting for left
-            else: lr_status = "<->"  # Waiting for both
-            status_parts.append(f"L/R:{lr_status}")
+            status_parts.append(f"Göz Kirpma: {self.blinks_detected_count}/{REQUIRED_BLINKS}")
+            
+            # Head movement status
+            hm_status = "Bekleniyor" if self.head_movement_ok is None else ("Tamam" if self.head_movement_ok else "Yetersiz")
+            status_parts.append(f"Kafa Hareketi: {hm_status}")
+            
+            # Look left/right status - split into separate lines
+            left_status = "Ok" if self.looked_left else "Look left"
+            right_status = "Ok" if self.looked_right else "Look right"
+            status_parts.append(f"Sola Bakma: {left_status}")
+            status_parts.append(f"Saga Bakma: {right_status}")
+            
             # Timer status
-            status_parts.append(f"{self.liveness_check_frame_counter}/{LIVENESS_TIMEOUT_FRAMES}F")
+            status_parts.append(f"Kalan Süre: {LIVENESS_TIMEOUT_FRAMES - self.liveness_check_frame_counter} kare")
 
-            return False, f"Kontrol ({', '.join(status_parts)})"
+            # Update UI message
+            self.system_status["liveness"] = f"{self.stable_match_name}: Canlilik Kontrolü\n" + "\n".join(status_parts)
+            self.system_status["liveness_color"] = COLOR_YELLOW  # Control in progress color
+
+        self.liveness_check_frame_counter += 1
+        return False, self.system_status["liveness"]
 
     def increment_frame_counter(self):
         """Increment the frame counter for timeout checking."""
