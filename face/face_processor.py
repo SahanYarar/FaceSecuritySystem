@@ -89,23 +89,123 @@ class FaceProcessor:
         else:
             return None, 0.0
 
-    def check_liveness_ear(self, shape):
-        """Landmarklardan Göz Açıklık Oranını (EAR) hesaplar."""
-        if shape is None: return None
+    def calculate_ear(self, eye_landmarks):
+        """Calculate the Eye Aspect Ratio (EAR) for a single eye."""
         try:
-            coords = shape_to_np(shape)
-            max_idx = max(self.l_end, self.r_end) - 1
-            if coords.shape[0] <= max_idx:
-                logging.warning("EAR için yeterli landmark yok.")
-                return None
-            left_eye = coords[self.l_start:self.l_end]
-            right_eye = coords[self.r_start:self.r_end]
-            left_ear = eye_aspect_ratio(left_eye)
-            right_ear = eye_aspect_ratio(right_eye)
-            ear = (left_ear + right_ear) / 2.0
+            # Convert dlib landmarks to numpy array if needed
+            if not isinstance(eye_landmarks, np.ndarray):
+                eye_landmarks = shape_to_np(eye_landmarks)
+            
+            # Compute the vertical distances
+            v1 = np.linalg.norm(eye_landmarks[1] - eye_landmarks[5])
+            v2 = np.linalg.norm(eye_landmarks[2] - eye_landmarks[4])
+            
+            # Compute the horizontal distance
+            h = np.linalg.norm(eye_landmarks[0] - eye_landmarks[3])
+            
+            # Calculate EAR
+            ear = (v1 + v2) / (2.0 * h)
             return ear
         except Exception as e:
-            logging.error(f"EAR Hesaplama Hatası: {e}")
+            logging.error(f"EAR calculation error: {e}")
+            return None
+
+    def detect_blink(self, landmarks, blink_data=None):
+        """Detect blinks using eye aspect ratio and state tracking."""
+        try:
+            if landmarks is None:
+                return None
+
+            # Convert dlib landmarks to numpy array
+            coords = shape_to_np(landmarks)
+            
+            # Get eye landmarks
+            left_eye = coords[self.l_start:self.l_end]
+            right_eye = coords[self.r_start:self.r_end]
+
+            # Calculate EAR for both eyes
+            left_ear = self.calculate_ear(left_eye)
+            right_ear = self.calculate_ear(right_eye)
+            
+            if left_ear is None or right_ear is None:
+                return None
+
+            # Calculate average EAR
+            ear = (left_ear + right_ear) / 2.0
+
+            # Initialize blink tracking data if not provided
+            if blink_data is None:
+                blink_data = {
+                    "eye_state": "open",
+                    "closed_frames": 0,
+                    "open_frames": 0,
+                    "blink_count": 0,
+                    "blink_in_progress": False,
+                    "last_ear": ear
+                }
+
+            # Detect eye state change
+            if ear < EAR_THRESHOLD:  # Eyes are closed
+                if blink_data["eye_state"] == "open":
+                    # Just closed eyes, start potential blink
+                    blink_data["blink_in_progress"] = True
+                
+                blink_data["closed_frames"] += 1
+                blink_data["open_frames"] = 0
+                blink_data["eye_state"] = "closed"
+                
+            else:  # Eyes are open
+                if (blink_data["eye_state"] == "closed" and 
+                    blink_data["blink_in_progress"] and
+                    1 <= blink_data["closed_frames"] <= EAR_CONSEC_FRAMES):  # Valid blink duration
+                    
+                    blink_data["blink_count"] += 1
+                    logging.info(f"Blink detected! Count: {blink_data['blink_count']}")
+                
+                blink_data["open_frames"] += 1
+                blink_data["closed_frames"] = 0
+                blink_data["eye_state"] = "open"
+                blink_data["blink_in_progress"] = False
+
+            # Reset blink tracking if eyes are closed for too long
+            if blink_data["closed_frames"] > EAR_CONSEC_FRAMES * 2:
+                blink_data["blink_in_progress"] = False
+
+            # Store current EAR for next frame
+            blink_data["last_ear"] = ear
+
+            return blink_data
+
+        except Exception as e:
+            logging.error(f"Blink detection error: {e}")
+            return None
+
+    def check_liveness_ear(self, shape):
+        """Check eye aspect ratio for liveness detection."""
+        if shape is None:
+            return None
+
+        try:
+            # Convert dlib landmarks to numpy array
+            coords = shape_to_np(shape)
+            
+            # Get eye landmarks
+            left_eye = coords[self.l_start:self.l_end]
+            right_eye = coords[self.r_start:self.r_end]
+
+            # Calculate EAR for both eyes
+            left_ear = self.calculate_ear(left_eye)
+            right_ear = self.calculate_ear(right_eye)
+            
+            if left_ear is None or right_ear is None:
+                return None
+
+            # Calculate average EAR
+            ear = (left_ear + right_ear) / 2.0
+            return ear
+
+        except Exception as e:
+            logging.error(f"EAR calculation error: {e}")
             return None
 
     def get_face_centroid(self, shape):
