@@ -1,7 +1,8 @@
 import logging
 import time
 from utils.helpers import handle_error
-from common.constants import DOOR_OPEN_TIME
+from utils.telegram_bot import TelegramBot
+from common.constants import DOOR_OPEN_TIME, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from .door_controller import DoorController
 
 class DoorManager:
@@ -18,6 +19,7 @@ class DoorManager:
             "liveness_color": None,
             "action_handler": None
         }
+        self.telegram_bot = TelegramBot(TELEGRAM_BOT_TOKEN)
 
     def update_status(self, message, color):
         """Update the system status message and color."""
@@ -33,6 +35,11 @@ class DoorManager:
             if self.controller.open_door():
                 self.door_opened_time = time.time()
                 self.update_status("Door Opened", "green")
+                # Send Telegram notification
+                self.telegram_bot.send_message(
+                    TELEGRAM_CHAT_ID,
+                    "<b>Door Opened</b>\nThe security door has been opened."
+                )
             else:
                 self.update_status("Door Opening Error!", "red")
 
@@ -43,6 +50,10 @@ class DoorManager:
             if self.controller.close_door():
                 self.door_opened_time = None
                 self.update_status("Door Closed", "red")
+                self.telegram_bot.send_message(
+                    TELEGRAM_CHAT_ID,
+                    "<b>Door Closed</b>\nThe security door has been closed."
+                )
                 return True  # Indicate that door was closed
             else:
                 self.update_status("Door Closing Error!", "red")
@@ -54,6 +65,11 @@ class DoorManager:
         """Open the door and keep it open for the specified duration."""
         if self.controller.open_door():
             logging.info("Door opened successfully")
+            # Send Telegram notification
+            self.telegram_bot.send_message(
+                TELEGRAM_CHAT_ID,
+                "<b>Door Opened</b>\nThe security door has been opened."
+            )
             return True
         return False
 
@@ -61,6 +77,11 @@ class DoorManager:
         """Close the door."""
         if self.controller.close_door():
             logging.info("Door closed successfully")
+            # Send Telegram notification
+            self.telegram_bot.send_message(
+                TELEGRAM_CHAT_ID,
+                "<b>Door Closed</b>\nThe security door has been closed."
+            )
             return True
         return False
 
