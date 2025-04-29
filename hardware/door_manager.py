@@ -17,14 +17,25 @@ class DoorManager:
             "color": None,
             "liveness": "Waiting",
             "liveness_color": None,
-            "action_handler": None
+            "action_handler": None,
+            "door_remaining_time": None  # New field for remaining time
         }
         self.telegram_bot = TelegramBot(TELEGRAM_BOT_TOKEN)
+
+    def _update_remaining_time(self):
+        """Update the remaining time until door closes."""
+        if self.door_opened_time and self.controller.get_state():
+            elapsed = time.time() - self.door_opened_time
+            remaining = max(0, DOOR_OPEN_TIME - elapsed)
+            self.system_status["door_remaining_time"] = remaining
+        else:
+            self.system_status["door_remaining_time"] = None
 
     def update_status(self, message, color):
         """Update the system status message and color."""
         self.system_status["status"] = message
         self.system_status["color"] = color
+        self._update_remaining_time()
 
     def update_door_state(self, is_stable_now, liveness_passed, current_mode):
         """Update door state based on recognition and liveness status."""
@@ -59,13 +70,15 @@ class DoorManager:
                 self.update_status("Door Closing Error!", "red")
                 logging.error("Failed to close door!")
 
+        self._update_remaining_time()
         return False  # Door was not closed
 
     def open_door(self):
         """Open the door and keep it open for the specified duration."""
         if self.controller.open_door():
             logging.info("Door opened successfully")
-            # Send Telegram notification
+            self.door_opened_time = time.time()
+            self._update_remaining_time()
             self.telegram_bot.send_message(
                 TELEGRAM_CHAT_ID,
                 "<b>Door Opened</b>\nThe security door has been opened."
@@ -77,7 +90,8 @@ class DoorManager:
         """Close the door."""
         if self.controller.close_door():
             logging.info("Door closed successfully")
-            # Send Telegram notification
+            self.door_opened_time = None
+            self._update_remaining_time()
             self.telegram_bot.send_message(
                 TELEGRAM_CHAT_ID,
                 "<b>Door Closed</b>\nThe security door has been closed."

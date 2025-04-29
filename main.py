@@ -273,12 +273,14 @@ class DoorSecuritySystem:
 
         try:
             known_names = list(self.storage.get_known_faces().keys())
+            # Combine system status with door manager status
             system_status = {
                 "status": self.system_status["status"],
                 "color": self.system_status["color"],
                 "liveness": self.system_status["liveness"],
                 "liveness_color": self.system_status["liveness_color"],
-                "action_handler": self.handle_ui_action
+                "action_handler": self.handle_ui_action,
+                "door_remaining_time": self.door_manager.system_status["door_remaining_time"]
             }
             self.interface.draw_ui(display_frame, self.current_mode, self.input_text, known_names, system_status)
         except Exception as e:

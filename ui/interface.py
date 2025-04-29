@@ -106,6 +106,13 @@ class Interface:
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.liveness_color, 2, cv2.LINE_AA)
                 y_offset += 25  # Add some space between lines
 
+            # Draw door remaining time if available
+            if system_status.get("door_remaining_time") is not None:
+                remaining_time = system_status["door_remaining_time"]
+                time_text = f"Door closes in: {remaining_time:.1f}s"
+                time_pos = (10, y_offset + 10)  # Position below the liveness status
+                cv2.putText(frame, time_text, time_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_WHITE, 2, cv2.LINE_AA)
+
         # Modlara Göre Butonlar ve Diğer Elemanlar
         button_x = UI_BUTTON_MARGIN
         if mode == "normal":
