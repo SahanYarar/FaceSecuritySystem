@@ -111,7 +111,7 @@ class Interface:
                 remaining_time = system_status["door_remaining_time"]
                 time_text = f"Door closes in: {remaining_time:.1f}s"
                 time_pos = (10, y_offset + 10)  # Position below the liveness status
-                cv2.putText(frame, time_text, time_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_WHITE, 2, cv2.LINE_AA)
+                cv2.putText(frame, time_text, time_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_BLACK, 2, cv2.LINE_AA)
 
         # Modlara Göre Butonlar ve Diğer Elemanlar
         button_x = UI_BUTTON_MARGIN

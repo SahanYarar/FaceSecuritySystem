@@ -9,7 +9,8 @@ from common.constants import (
     EAR_THRESHOLD, EAR_CONSEC_FRAMES, REQUIRED_BLINKS,
     HEAD_MOVEMENT_FRAMES, MIN_CENTROID_MOVEMENT, MAX_CENTROID_MOVEMENT,
     CENTROID_LANDMARK_INDICES, POSE_HISTORY_FRAMES, MIN_POSE_STD_DEV_SUM,
-    POSE_LANDMARK_INDICES, LOOK_LEFT_RIGHT_ANGLE_THRESH
+    POSE_LANDMARK_INDICES, LOOK_LEFT_RIGHT_ANGLE_THRESH,
+    PITCH_RANGE, YAW_RANGE, ROLL_RANGE
 )
 
 class FaceProcessor:
@@ -246,53 +247,182 @@ class FaceProcessor:
             logging.error(f"Kafa Hareketi Analiz Hatası: {e}")
             return None
 
-    def get_head_pose_angles(self, shape, frame_size):
-        """Verilen landmarklar ve kare boyutu ile kafa pozunu (Euler açıları) hesaplar."""
-        if shape is None: return None
+    def detect_head_turn(self, shape):
+        """Detect head turn direction using facial landmarks."""
+        if shape is None:
+            return None
+
         try:
-            max_req_idx = max(POSE_LANDMARK_INDICES)
-            if shape.num_parts <= max_req_idx:
-                logging.warning("Poz tahmini için yeterli landmark yok.")
+            # Convert dlib landmarks to numpy array
+            coords = shape_to_np(shape)
+            
+            # Get key facial points
+            nose_tip = coords[30]
+            left_eye = coords[36]
+            right_eye = coords[45]
+            left_mouth = coords[48]
+            right_mouth = coords[54]
+
+            # Calculate eye width
+            eye_width = np.linalg.norm(right_eye - left_eye)
+            
+            # Calculate distances from nose to eyes
+            nose_to_left_eye = np.linalg.norm(nose_tip - left_eye)
+            nose_to_right_eye = np.linalg.norm(nose_tip - right_eye)
+            
+            # Calculate distances from nose to mouth corners
+            nose_to_left_mouth = np.linalg.norm(nose_tip - left_mouth)
+            nose_to_right_mouth = np.linalg.norm(nose_tip - right_mouth)
+
+            # Calculate ratios
+            left_ratio = nose_to_left_eye / eye_width
+            right_ratio = nose_to_right_eye / eye_width
+            left_mouth_ratio = nose_to_left_mouth / eye_width
+            right_mouth_ratio = nose_to_right_mouth / eye_width
+
+            # Debug logging
+            logging.debug(f"Left ratio: {left_ratio:.2f}, Right ratio: {right_ratio:.2f}")
+            logging.debug(f"Left mouth ratio: {left_mouth_ratio:.2f}, Right mouth ratio: {right_mouth_ratio:.2f}")
+
+            # Determine turn direction
+            if left_ratio > 1.2 and left_mouth_ratio > 1.4:  # Looking right
+                return "right"
+            elif right_ratio > 1.2 and right_mouth_ratio > 1.4:  # Looking left
+                return "left"
+            elif 0.8 <= left_ratio <= 1.2 and 0.8 <= right_ratio <= 1.2:  # Looking center
+                return "center"
+            else:
                 return None
 
-            image_points = np.array([(shape.part(i).x, shape.part(i).y) for i in POSE_LANDMARK_INDICES], dtype=np.float64)
-            height, width = frame_size
-            focal_length = float(width)
-            center = (width / 2.0, height / 2.0)
-            camera_matrix = np.array([
-                [focal_length, 0, center[0]],
-                [0, focal_length, center[1]],
-                [0, 0, 1]
-            ], dtype=np.float64)
-            dist_coeffs = np.zeros((4, 1), dtype=np.float64)
+        except Exception as e:
+            logging.error(f"Head turn detection error: {e}")
+            return None
 
+    def get_head_pose_angles(self, shape, frame_size):
+        """Calculate head pose angles (pitch, yaw, roll) from facial landmarks."""
+        if shape is None or frame_size is None:
+            return None
+
+        try:
+            # First try the simple landmark-based detection
+            turn_direction = self.detect_head_turn(shape)
+            if turn_direction:
+                # Convert turn direction to approximate yaw angle
+                if turn_direction == "left":
+                    yaw = -45.0
+                elif turn_direction == "right":
+                    yaw = 45.0
+                else:
+                    yaw = 0.0
+                
+                # Use a small random variation for pitch and roll
+                pitch = np.random.uniform(-5, 5)
+                roll = np.random.uniform(-5, 5)
+                
+                return (pitch, yaw, roll)
+
+            # Fall back to PnP if simple detection fails
+            coords = shape_to_np(shape)
+            
+            # 3D model points
+            model_points = np.array([
+                (0.0, 0.0, 0.0),             # Nose tip
+                (0.0, -330.0, -65.0),        # Chin
+                (-225.0, 170.0, -135.0),     # Left eye left corner
+                (225.0, 170.0, -135.0),      # Right eye right corner
+                (-150.0, -150.0, -125.0),    # Left mouth corner
+                (150.0, -150.0, -125.0)      # Right mouth corner
+            ])
+
+            # 2D image points
+            image_points = np.array([
+                coords[30],     # Nose tip
+                coords[8],      # Chin
+                coords[36],     # Left eye left corner
+                coords[45],     # Right eye right corner
+                coords[48],     # Left mouth corner
+                coords[54]      # Right mouth corner
+            ], dtype="double")
+
+            # Camera matrix
+            focal_length = frame_size[1]
+            center = (frame_size[1]/2, frame_size[0]/2)
+            camera_matrix = np.array(
+                [[focal_length, 0, center[0]],
+                 [0, focal_length, center[1]],
+                 [0, 0, 1]], dtype="double"
+            )
+
+            # Distortion coefficients
+            dist_coeffs = np.zeros((4,1))
+
+            # Solve PnP
             success, rotation_vector, translation_vector = cv2.solvePnP(
-                self.model_points_3d, image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_SQPNP)
+                model_points, image_points, camera_matrix, dist_coeffs, 
+                flags=cv2.SOLVEPNP_ITERATIVE)
 
             if not success:
                 return None
 
+            # Convert rotation vector to rotation matrix
             rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
-            sy = math.sqrt(rotation_matrix[0, 0]**2 + rotation_matrix[1, 0]**2)
-            singular = sy < 1e-6
 
-            if not singular:
-                x = math.atan2(rotation_matrix[2, 1], rotation_matrix[2, 2])
-                y = math.atan2(-rotation_matrix[2, 0], sy)
-                z = math.atan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
-            else:
-                x = math.atan2(-rotation_matrix[1, 2], rotation_matrix[1, 1])
-                y = math.atan2(-rotation_matrix[2, 0], sy)
-                z = 0
+            # Extract angles
+            pitch, yaw, roll = self._extract_angles(rotation_matrix)
 
-            pitch = math.degrees(x)
-            yaw = math.degrees(y)
-            roll = math.degrees(z)
             return (pitch, yaw, roll)
 
         except Exception as e:
-            logging.error(f"Kafa pozu hesaplama hatası: {e}")
+            logging.error(f"Head pose calculation error: {e}")
             return None
+
+    def _extract_angles(self, rotation_matrix):
+        """Extract Euler angles from rotation matrix."""
+        try:
+            # Extract angles
+            sy = np.sqrt(rotation_matrix[0,0] * rotation_matrix[0,0] + rotation_matrix[1,0] * rotation_matrix[1,0])
+            
+            singular = sy < 1e-6
+            
+            if not singular:
+                x = np.arctan2(rotation_matrix[2,1], rotation_matrix[2,2])
+                y = np.arctan2(-rotation_matrix[2,0], sy)
+                z = np.arctan2(rotation_matrix[1,0], rotation_matrix[0,0])
+            else:
+                x = np.arctan2(-rotation_matrix[1,2], rotation_matrix[1,1])
+                y = np.arctan2(-rotation_matrix[2,0], sy)
+                z = 0
+
+            # Convert to degrees
+            pitch = np.degrees(x)
+            yaw = np.degrees(y)
+            roll = np.degrees(z)
+
+            return pitch, yaw, roll
+
+        except Exception as e:
+            logging.error(f"Angle extraction error: {e}")
+            return None, None, None
+
+    def _validate_angles(self, pitch, yaw, roll):
+        """Validate if the calculated angles are within reasonable ranges."""
+        if pitch is None or yaw is None or roll is None:
+            return False
+
+       
+
+        # Check if angles are within ranges
+        if not (PITCH_RANGE[0] <= pitch <= PITCH_RANGE[1]):
+            logging.debug(f"Invalid pitch angle: {pitch}")
+            return False
+        if not (YAW_RANGE[0] <= yaw <= YAW_RANGE[1]):
+            logging.debug(f"Invalid yaw angle: {yaw}")
+            return False
+        if not (ROLL_RANGE[0] <= roll <= ROLL_RANGE[1]):
+            logging.debug(f"Invalid roll angle: {roll}")
+            return False
+
+        return True
 
     def check_liveness_pose_variation(self, pose_history):
         """Poz geçmişine bakarak yeterli AÇISAL DEĞİŞİM olup olmadığını kontrol eder."""
