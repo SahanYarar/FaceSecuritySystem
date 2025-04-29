@@ -109,16 +109,13 @@ class LivenessDetector:
                 # Calculate yaw difference from initial position
                 yaw_diff = current_yaw - self.initial_yaw
                 
-                # Debug logging
-                logging.debug(f"Yaw: {current_yaw:.1f}, Diff: {yaw_diff:.1f}, Left: {self.looked_left}, Right: {self.looked_right}")
+                logging.debug(f"Yaw: {current_yaw:.1f}, Initial: {self.initial_yaw:.1f}, Diff: {yaw_diff:.1f}, Left: {self.looked_left}, Right: {self.looked_right}")
                 
-                # Check for left turn (negative yaw difference)
-                if not self.looked_left and yaw_diff < -LOOK_LEFT_RIGHT_ANGLE_THRESH:  
+                if not self.looked_left and yaw_diff > LOOK_LEFT_RIGHT_ANGLE_THRESH:
                     self.looked_left = True
                     logging.info(f"Liveness: Looked left detected (Yaw: {current_yaw:.1f}, Diff: {yaw_diff:.1f})")
                 
-                # Check for right turn (positive yaw difference)
-                if not self.looked_right and yaw_diff > LOOK_LEFT_RIGHT_ANGLE_THRESH:  
+                if not self.looked_right and yaw_diff < -LOOK_LEFT_RIGHT_ANGLE_THRESH:
                     self.looked_right = True
                     logging.info(f"Liveness: Looked right detected (Yaw: {current_yaw:.1f}, Diff: {yaw_diff:.1f})")
 
@@ -128,6 +125,9 @@ class LivenessDetector:
                         logging.info("Liveness: Head returned to center after left look")
                     elif self.looked_right and not self.looked_left:
                         logging.info("Liveness: Head returned to center after right look")
+                    # Reset initial yaw when returning to center to make next movement easier to detect
+                    self.initial_yaw = current_yaw
+                    logging.info(f"Liveness: Reset initial yaw to {self.initial_yaw:.1f} degrees")
 
     def check_liveness(self):
         """Check if all liveness requirements are met."""

@@ -32,9 +32,9 @@ CENTROID_LANDMARK_INDICES = [30, 33, 8, 36, 45, 48, 54]
 POSE_HISTORY_FRAMES = 15
 MIN_POSE_STD_DEV_SUM = 0.45
 POSE_LANDMARK_INDICES = [30, 8, 36, 45, 48, 54]
-LOOK_LEFT_RIGHT_ANGLE_THRESH = 20.0  # Minimum Yaw angle deviation for left/right look (degrees)
-POSE_CENTER_THRESHOLD = 10
- # More lenient ranges for each angle
+LOOK_LEFT_RIGHT_ANGLE_THRESH = 14.0  
+POSE_CENTER_THRESHOLD = 15
+
 PITCH_RANGE = (-45, 45)   # Looking up/down
 YAW_RANGE = (-90, 90)     # Looking left/right
 ROLL_RANGE = (-45, 45)    # Head tilt
