@@ -107,7 +107,7 @@ class Interface:
                 y_offset += 25  # Add some space between lines
 
             # Draw door remaining time if available
-            if system_status.get("door_remaining_time") is not None:
+            if system_status.get("door_remaining_time") is not None and system_status["door_remaining_time"] > 0:
                 remaining_time = system_status["door_remaining_time"]
                 time_text = f"Door closes in: {remaining_time:.1f}s"
                 time_pos = (10, y_offset + 10)  # Position below the liveness status
