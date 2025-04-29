@@ -216,7 +216,7 @@ class DoorSecuritySystem:
         # If liveness passed, open door
         if liveness_passed:
             logging.info(f"Liveness passed for {self.face_tracker.candidate_name}")
-            self.door_manager.open_door()
+            self.door_manager.open_door(self.face_tracker.stable_match_name)
             self.face_tracker.reset()
             self.liveness_detector.reset()
 
@@ -370,6 +370,12 @@ class DoorSecuritySystem:
 
                         # Update liveness detection
                         self._update_liveness(landmarks)
+
+                        # Check if we should open the door
+                        if (self.face_tracker.stable_match_name and 
+                            self.liveness_detector.liveness_passed and 
+                            not self.door_manager.get_state()):
+                            self.door_manager.open_door(self.face_tracker.stable_match_name)
 
                     else:
                         # No face detected

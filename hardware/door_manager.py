@@ -37,7 +37,7 @@ class DoorManager:
         self.system_status["color"] = color
         self._update_remaining_time()
 
-    def update_door_state(self, is_stable_now, liveness_passed, current_mode):
+    def update_door_state(self, is_stable_now, liveness_passed, current_mode, person_name=None):
         """Update door state based on recognition and liveness status."""
         # Door opening condition
         if (current_mode == "normal" and is_stable_now and
@@ -46,10 +46,13 @@ class DoorManager:
             if self.controller.open_door():
                 self.door_opened_time = time.time()
                 self.update_status("Door Opened", "green")
-                # Send Telegram notification
+                # Send Telegram notification with person's name
+                message = f"<b>Door Opened</b>\nThe security door has been opened."
+                if person_name:
+                    message = f"<b>Door Opened</b>\n{person_name} has opened the security door."
                 self.telegram_bot.send_message(
                     TELEGRAM_CHAT_ID,
-                    "<b>Door Opened</b>\nThe security door has been opened."
+                    message
                 )
             else:
                 self.update_status("Door Opening Error!", "red")
@@ -61,9 +64,13 @@ class DoorManager:
             if self.controller.close_door():
                 self.door_opened_time = None
                 self.update_status("Door Closed", "red")
+                # Send Telegram notification with person's name
+                message = f"<b>Door Closed</b>\nThe security door has been closed."
+                if person_name:
+                    message = f"<b>Door Closed</b>\nThe security door has been closed after {person_name}'s entry."
                 self.telegram_bot.send_message(
                     TELEGRAM_CHAT_ID,
-                    "<b>Door Closed</b>\nThe security door has been closed."
+                    message
                 )
                 return True  # Indicate that door was closed
             else:
@@ -73,28 +80,36 @@ class DoorManager:
         self._update_remaining_time()
         return False  # Door was not closed
 
-    def open_door(self):
+    def open_door(self, person_name=None):
         """Open the door and keep it open for the specified duration."""
         if self.controller.open_door():
             logging.info("Door opened successfully")
             self.door_opened_time = time.time()
             self._update_remaining_time()
+            # Send Telegram notification with person's name
+            message = f"<b>Door Opened</b>\nThe security door has been opened."
+            if person_name:
+                message = f"<b>Door Opened</b>\n{person_name} has opened the security door."
             self.telegram_bot.send_message(
                 TELEGRAM_CHAT_ID,
-                "<b>Door Opened</b>\nThe security door has been opened."
+                message
             )
             return True
         return False
 
-    def close_door(self):
+    def close_door(self, person_name=None):
         """Close the door."""
         if self.controller.close_door():
             logging.info("Door closed successfully")
             self.door_opened_time = None
             self._update_remaining_time()
+            # Send Telegram notification with person's name
+            message = f"<b>Door Closed</b>\nThe security door has been closed."
+            if person_name:
+                message = f"<b>Door Closed</b>\nThe security door has been closed after {person_name}'s entry."
             self.telegram_bot.send_message(
                 TELEGRAM_CHAT_ID,
-                "<b>Door Closed</b>\nThe security door has been closed."
+                message
             )
             return True
         return False
