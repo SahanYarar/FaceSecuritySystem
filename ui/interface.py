@@ -63,6 +63,7 @@ class Interface:
             status_parts = []
             status_parts.append("=== Liveness Check ===")
             status_parts.append(f"Blinks: {liveness_data['blinks']}/{liveness_data['required_blinks']}")
+            status_parts.append(f"Score: {liveness_data.get('score', 0)}")
             
             # Head movement status
             hm_status = "Waiting" if liveness_data['head_movement'] is None else ("OK" if liveness_data['head_movement'] else "Insufficient")

@@ -142,7 +142,8 @@ class FaceProcessor:
                     "open_frames": 0,
                     "blink_count": 0,
                     "blink_in_progress": False,
-                    "last_ear": ear
+                    "last_ear": ear,
+                    "score": 0  # Initialize score
                 }
 
             # Detect eye state change
@@ -155,22 +156,30 @@ class FaceProcessor:
                 blink_data["open_frames"] = 0
                 blink_data["eye_state"] = "closed"
                 
+                # Count as blink if eyes are closed for a short duration
+                if 1 <= blink_data["closed_frames"] <= EAR_CONSEC_FRAMES:
+                    blink_data["blink_count"] += 1
+                    blink_data["score"] += 2  # Award points for valid blink
+                    logging.info(f"Blink detected! Count: {blink_data['blink_count']}, Score: {blink_data['score']}")
+                
             else:  # Eyes are open
                 if (blink_data["eye_state"] == "closed" and 
                     blink_data["blink_in_progress"] and
                     1 <= blink_data["closed_frames"] <= EAR_CONSEC_FRAMES):  # Valid blink duration
                     
                     blink_data["blink_count"] += 1
-                    logging.info(f"Blink detected! Count: {blink_data['blink_count']}")
+                    blink_data["score"] += 2  # Award points for valid blink
+                    logging.info(f"Blink detected! Count: {blink_data['blink_count']}, Score: {blink_data['score']}")
                 
                 blink_data["open_frames"] += 1
                 blink_data["closed_frames"] = 0
                 blink_data["eye_state"] = "open"
                 blink_data["blink_in_progress"] = False
 
-            # Reset blink tracking if eyes are closed for too long
+            # Penalize continuous eye closure
             if blink_data["closed_frames"] > EAR_CONSEC_FRAMES * 2:
                 blink_data["blink_in_progress"] = False
+                blink_data["score"] = max(0, blink_data["score"] - 1)  # Penalize for long eye closure
 
             # Store current EAR for next frame
             blink_data["last_ear"] = ear
