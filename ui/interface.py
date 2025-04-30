@@ -52,11 +52,16 @@ class Interface:
             self.liveness = f"{name}: Low pose variation - PHOTO"
             self.liveness_color = COLOR_RED
         elif status == "passed":
-            self.liveness = f"{name}: Liveness check PASSED"
+            expires_in = liveness_data.get("expires_in", 0)
+            self.liveness = f"=== Liveness Check ===\nStatus: PASSED\nTime Remaining: {expires_in:.1f}s\n==================="
             self.liveness_color = COLOR_GREEN
+        elif status == "expired":
+            self.liveness = "=== Liveness Check ===\nStatus: EXPIRED\n==================="
+            self.liveness_color = COLOR_RED
         elif status == "in_progress":
             # Create detailed status display
             status_parts = []
+            status_parts.append("=== Liveness Check ===")
             status_parts.append(f"Blinks: {liveness_data['blinks']}/{liveness_data['required_blinks']}")
             
             # Head movement status
@@ -71,8 +76,9 @@ class Interface:
             
             # Timer status
             status_parts.append(f"Time Remaining: {liveness_data['frames_remaining']} frames")
+            status_parts.append("===================")
 
-            self.liveness = f"{name}: Liveness Check\n" + "\n".join(status_parts)
+            self.liveness = "\n".join(status_parts)
             self.liveness_color = COLOR_YELLOW
 
     def set_message(self, text, color=COLOR_GREEN, duration=3.0):

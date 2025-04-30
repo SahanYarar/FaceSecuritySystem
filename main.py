@@ -206,19 +206,28 @@ class DoorSecuritySystem:
         # Update interface with liveness data
         self.interface.update_liveness(liveness_data)
         
+        # Update system status based on liveness
+        if liveness_passed:
+            self.system_status["status"] = f"Liveness passed for {self.face_tracker.stable_match_name}"
+            self.system_status["color"] = COLOR_GREEN
+        elif liveness_data.get("status") == "in_progress":
+            self.system_status["status"] = f"Checking liveness for {self.face_tracker.stable_match_name}"
+            self.system_status["color"] = COLOR_YELLOW
+        elif liveness_data.get("status") == "expired":
+            self.system_status["status"] = f"Liveness expired for {self.face_tracker.stable_match_name}"
+            self.system_status["color"] = COLOR_RED
+
+        self.liveness_detector.increment_frame_counter()
+
         # Update door manager status
         self.door_manager.update_status(liveness_data.get("status", "unknown"), 
                                       self.interface.liveness_color)
 
-        # Increment frame counter
-        self.liveness_detector.increment_frame_counter()
-
         # If liveness passed, open door
         if liveness_passed:
-            logging.info(f"Liveness passed for {self.face_tracker.candidate_name}")
+            logging.info(f"Liveness passed for {self.face_tracker.stable_match_name}")
             self.door_manager.open_door(self.face_tracker.stable_match_name)
-            self.face_tracker.reset()
-            self.liveness_detector.reset()
+        
 
     def _draw_frame_elements(self, display_frame):
         """Draw UI elements on the frame."""
@@ -376,21 +385,33 @@ class DoorSecuritySystem:
                             self.liveness_detector.liveness_passed and 
                             not self.door_manager.get_state()):
                             self.door_manager.open_door(self.face_tracker.stable_match_name)
+                            
+                            # Update system status to show door is open
+                            self.system_status["status"] = f"Door opened for {self.face_tracker.stable_match_name}"
+                            self.system_status["color"] = COLOR_GREEN
+                            
+                            # Get current liveness data
+                            _, liveness_data = self.liveness_detector.check_liveness()
+                            self.interface.update_liveness(liveness_data)
 
                     else:
-                        # No face detected
-                        self.face_tracker.reset()
-                        self.liveness_detector.reset()
-                        self.system_status["status"] = "No face detected"
-                        self.system_status["color"] = COLOR_RED
+                        # No face detected - only reset if we're not in a passed state
+                        if not self.liveness_detector.liveness_passed:
+                            self.face_tracker.reset()
+                            self.liveness_detector.reset()
+                            self.system_status["status"] = "No face detected"
+                            self.system_status["color"] = COLOR_RED
+                            # Reset liveness display
+                            self.interface.update_liveness(None)
+                        else:
+                            # If liveness is passed, keep showing the status
+                            _, liveness_data = self.liveness_detector.check_liveness()
+                            self.interface.update_liveness(liveness_data)
 
                     # Only update UI if status has changed or enough time has passed
                     if (self.system_status["status"] != last_status or 
                         current_time - status_update_time >= min_status_update_interval):
                         self.interface.update_status(self.system_status["status"], self.system_status["color"])
-                        # Get liveness data from the detector
-                        _, liveness_data = self.liveness_detector.check_liveness()
-                        self.interface.update_liveness(liveness_data)
                         last_status = self.system_status["status"]
                         status_update_time = current_time
 

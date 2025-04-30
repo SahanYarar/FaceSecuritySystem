@@ -1,12 +1,13 @@
 import collections
 import logging
+import time
 from utils.helpers import handle_error
 from common.constants import (
     EAR_THRESHOLD, EAR_CONSEC_FRAMES, REQUIRED_BLINKS,
     LIVENESS_TIMEOUT_FRAMES, HEAD_MOVEMENT_FRAMES,
     POSE_HISTORY_FRAMES, LOOK_LEFT_RIGHT_ANGLE_THRESH,
     COLOR_WHITE, COLOR_RED, COLOR_GREEN, COLOR_YELLOW,
-    POSE_CENTER_THRESHOLD
+    POSE_CENTER_THRESHOLD, LIVENESS_DURATION_SECONDS
 )
 
 class LivenessDetector:
@@ -28,6 +29,7 @@ class LivenessDetector:
             "liveness_color": COLOR_WHITE
         }
         self.stable_match_name = None
+        self.liveness_passed_time = None  # Timestamp when liveness was passed
 
     def reset(self):
         """Reset all liveness detection state."""
@@ -43,6 +45,7 @@ class LivenessDetector:
         self.looked_left = False
         self.looked_right = False
         self.is_checking = False
+        self.liveness_passed_time = None  # Reset the timestamp
         self.system_status = {
             "liveness": "Waiting for Face Recognition",
             "liveness_color": COLOR_WHITE
@@ -144,6 +147,31 @@ class LivenessDetector:
                 "current_yaw": self.initial_yaw if self.initial_yaw is not None else None
             }
 
+        # Check if liveness has expired
+        if self.liveness_passed and self.liveness_passed_time is not None:
+            elapsed_time = time.time() - self.liveness_passed_time
+            remaining_time = max(0, LIVENESS_DURATION_SECONDS - elapsed_time)
+            
+            if elapsed_time > LIVENESS_DURATION_SECONDS:
+                self.reset()
+                return False, {
+                    "status": "expired",
+                    "name": self.stable_match_name,
+                    "elapsed_time": elapsed_time
+                }
+            else:
+                # Return passed status with remaining time
+                return True, {
+                    "status": "passed",
+                    "name": self.stable_match_name,
+                    "expires_in": remaining_time,
+                    "blinks": self.blinks_detected_count,
+                    "required_blinks": REQUIRED_BLINKS,
+                    "head_movement": self.head_movement_ok,
+                    "looked_left": self.looked_left,
+                    "looked_right": self.looked_right
+                }
+
         # Timeout check
         if self.liveness_check_frame_counter > LIVENESS_TIMEOUT_FRAMES:
             self.is_checking = False
@@ -180,9 +208,16 @@ class LivenessDetector:
         # --- Success Condition ---
         if blinks_ok and head_move_ok and look_lr_ok:
             self.liveness_passed = True
+            self.liveness_passed_time = time.time()  # Record the time when liveness was passed
             return True, {
                 "status": "passed",
-                "name": self.stable_match_name
+                "name": self.stable_match_name,
+                "expires_in": LIVENESS_DURATION_SECONDS,
+                "blinks": self.blinks_detected_count,
+                "required_blinks": REQUIRED_BLINKS,
+                "head_movement": self.head_movement_ok,
+                "looked_left": self.looked_left,
+                "looked_right": self.looked_right
             }
 
         # --- In Progress Status ---
