@@ -143,7 +143,7 @@ class FaceProcessor:
                     "blink_count": 0,
                     "blink_in_progress": False,
                     "last_ear": ear,
-                    "score": 0  # Initialize score
+                    "score": 0  
                 }
 
             # Detect eye state change
@@ -156,7 +156,6 @@ class FaceProcessor:
                 blink_data["open_frames"] = 0
                 blink_data["eye_state"] = "closed"
                 
-                # Count as blink if eyes are closed for a short duration
                 if 1 <= blink_data["closed_frames"] <= EAR_CONSEC_FRAMES:
                     blink_data["blink_count"] += 1
                     blink_data["score"] += 2  # Award points for valid blink

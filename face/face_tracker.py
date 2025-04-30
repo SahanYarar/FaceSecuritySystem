@@ -53,7 +53,7 @@ class FaceTracker:
                 best_match_name = name
 
         # Check if match percentage is good enough (e.g., > 45%)
-        if best_match_percentage > 45.0:
+        if best_match_percentage > 50:
             if self.candidate_name == best_match_name:
                 self.recognition_streak_count += 1
             else:
