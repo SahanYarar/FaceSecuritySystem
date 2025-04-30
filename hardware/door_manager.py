@@ -47,6 +47,7 @@ class DoorManager:
                 if self.controller.open_door():
                     self.door_opened_time = time.time()
                     self.update_status("Door Opened", "green")
+                    # Send Telegram notification with person's name
                     message = f"<b>Door Opened</b>\nThe security door has been opened."
                     if person_name:
                         message = f"<b>Door Opened</b>\n{person_name} has opened the security door."
@@ -79,6 +80,9 @@ class DoorManager:
             else:
                 self.update_status("Door Closing Error!", "red")
                 logging.error("Failed to close door!")
+        elif not self.controller.get_state() and self.door_opened_time is None:
+            # Door is closed and no open time recorded
+            self.update_status("Door Closed", "red")
 
         self._update_remaining_time()
         return False  # Door was not closed

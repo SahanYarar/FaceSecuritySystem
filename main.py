@@ -318,7 +318,7 @@ class DoorSecuritySystem:
         # Add state tracking variables
         last_status = None
         status_update_time = time.time()
-        min_status_update_interval = 0.5  # Minimum time between status updates
+        min_status_update_interval = 0.5
 
         while self.running:
             try:
@@ -363,7 +363,7 @@ class DoorSecuritySystem:
                             if best_match_percentage > 45.0:
                                 self.face_tracker.update_recognition(face_descriptor, self.storage.get_known_faces(), self.face_processor)
                                 if self.face_tracker.stable_match_name:
-                                    self.system_status["status"] = f"Recognized: {self.face_tracker.stable_match_name})"
+                                    self.system_status["status"] = f"Recognized: {self.face_tracker.stable_match_name}"
                                     self.system_status["color"] = COLOR_GREEN
                                     # Start liveness check if not already checking
                                     if not self.liveness_detector.is_checking:
@@ -378,20 +378,6 @@ class DoorSecuritySystem:
                         # Update liveness detection
                         self._update_liveness(landmarks)
 
-                        # Check if we should open the door
-                        if (self.face_tracker.stable_match_name and 
-                            self.liveness_detector.liveness_passed and 
-                            not self.door_manager.get_state()):
-                            self.door_manager.open_door(self.face_tracker.stable_match_name)
-                            
-                            # Update system status to show door is open
-                            self.system_status["status"] = f"Door opened for {self.face_tracker.stable_match_name}"
-                            self.system_status["color"] = COLOR_GREEN
-                            
-                            # Get current liveness data
-                            _, liveness_data = self.liveness_detector.check_liveness()
-                            self.interface.update_liveness(liveness_data)
-
                     else:
                         # No face detected - only reset if we're not in a passed state
                         if not self.liveness_detector.liveness_passed:
@@ -405,6 +391,14 @@ class DoorSecuritySystem:
                             # If liveness is passed, keep showing the status
                             _, liveness_data = self.liveness_detector.check_liveness()
                             self.interface.update_liveness(liveness_data)
+
+                    # Update door state even when no face is detected
+                    self.door_manager.update_door_state(
+                        self.face_tracker.stable_match_name is not None,
+                        self.liveness_detector.liveness_passed,
+                        self.current_mode,
+                        self.face_tracker.stable_match_name
+                    )
 
                     # Only update UI if status has changed or enough time has passed
                     if (self.system_status["status"] != last_status or 
