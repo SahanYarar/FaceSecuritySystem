@@ -7,7 +7,8 @@ from common.constants import (
     LIVENESS_TIMEOUT_FRAMES, HEAD_MOVEMENT_FRAMES,
     POSE_HISTORY_FRAMES, LOOK_LEFT_RIGHT_ANGLE_THRESH,
     COLOR_WHITE, COLOR_RED, COLOR_GREEN, COLOR_YELLOW,
-    POSE_CENTER_THRESHOLD, LIVENESS_DURATION_SECONDS
+    POSE_CENTER_THRESHOLD, LIVENESS_DURATION_SECONDS,
+    REQUIRED_SCORE
 )
 
 class LivenessDetector:
@@ -24,6 +25,7 @@ class LivenessDetector:
         self.looked_left = False
         self.looked_right = False
         self.is_checking = False
+        self.blink_score = 0  # Added blink score tracking
         self.system_status = {
             "liveness": "Waiting for Face Recognition",
             "liveness_color": COLOR_WHITE
@@ -45,6 +47,7 @@ class LivenessDetector:
         self.looked_left = False
         self.looked_right = False
         self.is_checking = False
+        self.blink_score = 0  # Reset blink score
         self.liveness_passed_time = None  # Reset the timestamp
         self.system_status = {
             "liveness": "Waiting for Face Recognition",
@@ -66,7 +69,7 @@ class LivenessDetector:
             self.system_status["liveness"] = f"{name}: Checking"
             self.system_status["liveness_color"] = COLOR_YELLOW
 
-    def update_ear(self, ear_value):
+    def update_ear(self, ear_value, blink_data=None):
         """Update eye aspect ratio based liveness detection."""
         if not self.is_checking:
             return
@@ -77,8 +80,13 @@ class LivenessDetector:
             else:
                 if self.ear_consec_counter >= EAR_CONSEC_FRAMES:
                     self.blinks_detected_count += 1
-                    logging.info(f"Blink detected! Total: {self.blinks_detected_count}/{REQUIRED_BLINKS}")
+                    self.blink_score += 2  # Award points for valid blink
+                    logging.info(f"Blink detected! Total: {self.blinks_detected_count}/{REQUIRED_BLINKS}, Score: {self.blink_score}")
                 self.ear_consec_counter = 0
+
+            # Penalize for long eye closure
+            if self.ear_consec_counter > EAR_CONSEC_FRAMES * 2:
+                self.blink_score = max(0, self.blink_score - 1)  # Penalize for long eye closure
 
     def update_centroid(self, centroid, check_result):
         """Update head movement based liveness detection."""
@@ -144,7 +152,9 @@ class LivenessDetector:
                 "looked_left": self.looked_left,
                 "looked_right": self.looked_right,
                 "frames_remaining": LIVENESS_TIMEOUT_FRAMES - self.liveness_check_frame_counter,
-                "current_yaw": self.initial_yaw if self.initial_yaw is not None else None
+                "current_yaw": self.initial_yaw if self.initial_yaw is not None else None,
+                "score": self.blink_score,
+                "required_score": REQUIRED_SCORE
             }
 
         # Check if liveness has expired
@@ -157,7 +167,9 @@ class LivenessDetector:
                 return False, {
                     "status": "expired",
                     "name": self.stable_match_name,
-                    "elapsed_time": elapsed_time
+                    "elapsed_time": elapsed_time,
+                    "score": self.blink_score,
+                    "required_score": REQUIRED_SCORE
                 }
             else:
                 # Return passed status with remaining time
@@ -170,7 +182,9 @@ class LivenessDetector:
                     "head_movement": self.head_movement_ok,
                     "looked_left": self.looked_left,
                     "looked_right": self.looked_right,
-                    "should_open_door": True  
+                    "should_open_door": True,
+                    "score": self.blink_score,
+                    "required_score": REQUIRED_SCORE
                 }
 
         # Timeout check
@@ -178,7 +192,9 @@ class LivenessDetector:
             self.is_checking = False
             return False, {
                 "status": "timeout",
-                "name": self.stable_match_name
+                "name": self.stable_match_name,
+                "score": self.blink_score,
+                "required_score": REQUIRED_SCORE
             }
 
         # --- Decision Making Phase ---
@@ -186,6 +202,7 @@ class LivenessDetector:
         blinks_ok = self.blinks_detected_count >= REQUIRED_BLINKS
         head_move_ok = self.head_movement_ok is True
         look_lr_ok = self.looked_left and self.looked_right
+        score_ok = self.blink_score >= REQUIRED_SCORE
 
         # --- Failure Conditions (Priority) ---
         # 1. Timeout (checked above)
@@ -195,7 +212,9 @@ class LivenessDetector:
             self.reset()
             return False, {
                 "status": "insufficient_head_movement",
-                "name": self.stable_match_name
+                "name": self.stable_match_name,
+                "score": self.blink_score,
+                "required_score": REQUIRED_SCORE
             }
 
         # 3. Definite pose immobility detected (photo suspicion)
@@ -203,11 +222,13 @@ class LivenessDetector:
             self.reset()
             return False, {
                 "status": "low_pose_variation",
-                "name": self.stable_match_name
+                "name": self.stable_match_name,
+                "score": self.blink_score,
+                "required_score": REQUIRED_SCORE
             }
 
         # --- Success Condition ---
-        if blinks_ok and head_move_ok and look_lr_ok:
+        if blinks_ok and head_move_ok and look_lr_ok and score_ok:
             self.liveness_passed = True
             self.liveness_passed_time = time.time()  # Record the time when liveness was passed
             return True, {
@@ -219,7 +240,9 @@ class LivenessDetector:
                 "head_movement": self.head_movement_ok,
                 "looked_left": self.looked_left,
                 "looked_right": self.looked_right,
-                "should_open_door": True  
+                "should_open_door": True,
+                "score": self.blink_score,
+                "required_score": REQUIRED_SCORE
             }
 
         # --- In Progress Status ---
@@ -232,7 +255,9 @@ class LivenessDetector:
             "head_movement": self.head_movement_ok,
             "looked_left": self.looked_left,
             "looked_right": self.looked_right,
-            "frames_remaining": LIVENESS_TIMEOUT_FRAMES - self.liveness_check_frame_counter
+            "frames_remaining": LIVENESS_TIMEOUT_FRAMES - self.liveness_check_frame_counter,
+            "score": self.blink_score,
+            "required_score": REQUIRED_SCORE
         }
 
     def increment_frame_counter(self):

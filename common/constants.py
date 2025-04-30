@@ -19,9 +19,10 @@ STREAK_THRESHOLD = 4
 # Liveness Detection Settings
 EAR_THRESHOLD = 0.25  # Eye Aspect Ratio Threshold
 EAR_CONSEC_FRAMES = 2  # Consecutive frames for blink detection
-REQUIRED_BLINKS = 2  # Required number of blinks
+REQUIRED_BLINKS = 3  # Required number of blinks
+REQUIRED_SCORE = 6  # Minimum score required for liveness check
 LIVENESS_TIMEOUT_FRAMES = 300  # Liveness timeout in frames (5 seconds at 30 FPS)
-LIVENESS_DURATION_SECONDS = 5  # Duration in seconds before liveness expires
+LIVENESS_DURATION_SECONDS = 5
 
 # Head Movement Settings
 HEAD_MOVEMENT_FRAMES = 10
