@@ -169,7 +169,8 @@ class LivenessDetector:
                     "required_blinks": REQUIRED_BLINKS,
                     "head_movement": self.head_movement_ok,
                     "looked_left": self.looked_left,
-                    "looked_right": self.looked_right
+                    "looked_right": self.looked_right,
+                    "should_open_door": True  
                 }
 
         # Timeout check
@@ -217,7 +218,8 @@ class LivenessDetector:
                 "required_blinks": REQUIRED_BLINKS,
                 "head_movement": self.head_movement_ok,
                 "looked_left": self.looked_left,
-                "looked_right": self.looked_right
+                "looked_right": self.looked_right,
+                "should_open_door": True  
             }
 
         # --- In Progress Status ---

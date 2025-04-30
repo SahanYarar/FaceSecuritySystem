@@ -223,11 +223,15 @@ class DoorSecuritySystem:
         self.door_manager.update_status(liveness_data.get("status", "unknown"), 
                                       self.interface.liveness_color)
 
-        # If liveness passed, open door
-        if liveness_passed:
+        # If liveness passed, update door state
+        if liveness_passed and self.face_tracker.stable_match_name:
             logging.info(f"Liveness passed for {self.face_tracker.stable_match_name}")
-            self.door_manager.open_door(self.face_tracker.stable_match_name)
-        
+            self.door_manager.update_door_state(
+                True,  # is_stable_now
+                True,  # liveness_passed
+                self.current_mode,
+                self.face_tracker.stable_match_name
+            )
 
     def _draw_frame_elements(self, display_frame):
         """Draw UI elements on the frame."""

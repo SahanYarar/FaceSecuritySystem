@@ -47,7 +47,7 @@ SERVO_MAX_PULSE = 0.0025
 SERVO_FRAME_WIDTH = 0.02
 CLOSED_ANGLE = 10
 OPEN_ANGLE = -70
-DOOR_OPEN_TIME = 5.0
+DOOR_OPEN_TIME = LIVENESS_DURATION_SECONDS  # Use the same duration as liveness
 
 # File Paths
 SHAPE_PREDICTOR_PATH = 'shape_predictor_68_face_landmarks.dat'

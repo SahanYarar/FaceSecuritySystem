@@ -40,22 +40,25 @@ class DoorManager:
     def update_door_state(self, is_stable_now, liveness_passed, current_mode, person_name=None):
         """Update door state based on recognition and liveness status."""
         # Door opening condition
-        if (current_mode == "normal" and is_stable_now and
-                liveness_passed and self.controller and not self.controller.get_state()):
-            logging.info("Door opening conditions met")
-            if self.controller.open_door():
-                self.door_opened_time = time.time()
-                self.update_status("Door Opened", "green")
-                # Send Telegram notification with person's name
-                message = f"<b>Door Opened</b>\nThe security door has been opened."
-                if person_name:
-                    message = f"<b>Door Opened</b>\n{person_name} has opened the security door."
-                self.telegram_bot.send_message(
-                    TELEGRAM_CHAT_ID,
-                    message
-                )
+        if (current_mode == "normal" and is_stable_now and liveness_passed and self.controller):
+            # Only open door if liveness is freshly passed
+            if not self.door_opened_time or (time.time() - self.door_opened_time > DOOR_OPEN_TIME):
+                logging.info("Door opening conditions met")
+                if self.controller.open_door():
+                    self.door_opened_time = time.time()
+                    self.update_status("Door Opened", "green")
+                    message = f"<b>Door Opened</b>\nThe security door has been opened."
+                    if person_name:
+                        message = f"<b>Door Opened</b>\n{person_name} has opened the security door."
+                    self.telegram_bot.send_message(
+                        TELEGRAM_CHAT_ID,
+                        message
+                    )
+                else:
+                    self.update_status("Door Opening Error!", "red")
             else:
-                self.update_status("Door Opening Error!", "red")
+                # Door is already open, but update status to show it's still open
+                self.update_status("Door Already Open", "green")
 
         # Door closing condition
         if (self.controller and self.controller.get_state() and
