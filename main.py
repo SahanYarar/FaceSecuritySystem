@@ -266,12 +266,6 @@ class DoorSecuritySystem:
             else:
                 debug_info["Name"] = "Unknown"
 
-            # Liveness info
-            if self.liveness_detector.is_checking:
-                if self.liveness_detector.liveness_passed:
-                    debug_info["Liveness"] = "✓ Passed"
-                else:
-                    debug_info["Blinks"] = f"{self.liveness_detector.blinks_detected_count}/{REQUIRED_BLINKS}"
 
             # Draw debug information
             y_offset = y1 - 10
