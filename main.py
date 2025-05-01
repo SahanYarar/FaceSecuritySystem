@@ -19,7 +19,7 @@ from face.face_tracker import FaceTracker
 from db.face_storage import FaceStorage
 from hardware.door_controller import DoorController
 from hardware.door_manager import DoorManager
-from utils.helpers import handle_error, eye_aspect_ratio, shape_to_np, calculate_iou
+from utils.helpers import handle_error, shape_to_np, calculate_iou
 from common.constants import (
      FRAME_WIDTH, PROCESS_WIDTH,
      REQUIRED_BLINKS, HEAD_MOVEMENT_FRAMES, POSE_HISTORY_FRAMES,

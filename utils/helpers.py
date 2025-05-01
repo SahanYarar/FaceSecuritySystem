@@ -45,40 +45,6 @@ def handle_error(error_msg, return_value=None, log_level=logging.ERROR):
     logging.log(log_level, f"{error_msg}\n{traceback.format_exc()}")
     return return_value
 
-def eye_aspect_ratio(eye_landmarks):
-    """
-    Calculate the Eye Aspect Ratio (EAR) for a single eye.
-    
-    Process:
-    1. Calculate vertical distances between eye landmarks
-    2. Calculate horizontal distance between eye corners
-    3. Compute ratio: (v1 + v2) / (2 * h)
-    
-    Args:
-        eye_landmarks: Array of 6 (x, y) coordinates of facial landmarks for the eye
-        - Points 0-3: Eye corners and top/bottom points
-        - Points 4-5: Additional points for EAR calculation
-    
-    Returns:
-        float: The eye aspect ratio
-        - Higher values indicate open eyes
-        - Lower values indicate closed eyes
-        - Typical threshold: 0.2-0.3 for blink detection
-    """
-    try:
-        # Compute the euclidean distances between the vertical eye landmarks
-        A = euclidean(eye_landmarks[1], eye_landmarks[5])
-        B = euclidean(eye_landmarks[2], eye_landmarks[4])
-        
-        # Compute the euclidean distance between the horizontal eye landmarks
-        C = euclidean(eye_landmarks[0], eye_landmarks[3])
-        
-        # Calculate the eye aspect ratio
-        ear = (A + B) / (2.0 * C)
-        return ear
-    except Exception as e:
-        return handle_error(f"Error calculating eye aspect ratio: {str(e)}", 0.0)
-
 def calculate_iou(box1, box2):
     """
     Calculate the Intersection over Union (IoU) of two bounding boxes.

@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import dlib
 import math
-from utils.helpers import handle_error, eye_aspect_ratio, shape_to_np
+from utils.helpers import handle_error, shape_to_np
 from common.constants import (
     SHAPE_PREDICTOR_PATH, FACE_REC_MODEL_PATH, RECOG_DIST_THRESH,
     EAR_THRESHOLD, EAR_CONSEC_FRAMES, REQUIRED_BLINKS,
