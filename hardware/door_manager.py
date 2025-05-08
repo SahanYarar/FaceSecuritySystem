@@ -8,7 +8,7 @@ from .door_controller import DoorController
 class DoorManager:
     def __init__(self, door_controller=None):
         self.controller = door_controller if door_controller else DoorController()
-        self.is_simulated = not self.controller.gpio_available
+        self.is_simulated = not getattr(self.controller, 'gpio_available', True)
         if self.is_simulated:
             logging.warning("Running in simulation mode - door control will be simulated")
         self.door_opened_time = None

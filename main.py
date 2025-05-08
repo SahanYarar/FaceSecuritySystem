@@ -19,18 +19,35 @@ from face.face_tracker import FaceTracker
 from db.face_storage import FaceStorage
 from hardware.door_controller import DoorController
 from hardware.door_manager import DoorManager
-from utils.helpers import handle_error, eye_aspect_ratio, shape_to_np, calculate_iou
+from utils.helpers import handle_error, shape_to_np, calculate_iou
 from common.constants import (
      FRAME_WIDTH, PROCESS_WIDTH,
-     REQUIRED_BLINKS,HEAD_MOVEMENT_FRAMES, POSE_HISTORY_FRAMES,COLOR_GREEN, COLOR_RED,COLOR_BLUE, COLOR_YELLOW, COLOR_WHITE,
+     REQUIRED_BLINKS, HEAD_MOVEMENT_FRAMES, POSE_HISTORY_FRAMES,
+     COLOR_GREEN, COLOR_RED, COLOR_BLUE, COLOR_YELLOW, COLOR_WHITE,
 )
 
-# Logging ayarları
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-# --- Ana Sistem Sınıfı ---
 class DoorSecuritySystem:
-    """Tüm alt sistemleri yöneten ana sınıf."""
+    """
+    Main security system class that coordinates all components:
+    1. Face Detection and Recognition
+    2. Liveness Detection
+    3. Door Control
+    4. User Interface
+    
+    System Flow:
+    1. Initialize all components (camera, face processor, etc.)
+    2. Process each frame:
+       - Detect faces
+       - Extract landmarks
+       - Compute face descriptors
+       - Check liveness
+       - Update recognition state
+    3. Control door based on recognition and liveness
+    4. Update UI with system status
+    """
     def __init__(self):
         logging.info("Face Security System v3.0 initializing...")
         self.cap = None
@@ -38,61 +55,97 @@ class DoorSecuritySystem:
         self.initialized_successfully = False
 
         try:
-            # Alt sistemleri başlat
+            # Initialize all system components
+            # 1. Camera Manager: Handles camera initialization and frame capture
+            #    - Sets resolution and frame rate
+            #    - Handles camera errors and reconnection
             self.camera_manager = CameraManager()
+            
+            # 2. Face Processor: Core face recognition component
+            #    - Face detection using dlib's HOG detector
+            #    - 68-point facial landmark detection
+            #    - 128D face descriptor computation
             self.face_processor = FaceProcessor()
+            
+            # 3. Face Storage: Database for known faces
+            #    - Stores face descriptors
+            #    - Handles face registration and deletion
             self.storage = FaceStorage()
+            
+            # 4. Door Controller: Hardware interface
+            #    - Controls door lock/unlock
+            #    - Handles door status monitoring
             self.door_controller = DoorController()
+            
+            # 5. User Interface: System UI
+            #    - Displays camera feed
+            #    - Shows system status
+            #    - Handles user input
             self.interface = Interface()
 
-            # Initialize managers
+            # Initialize specialized components
+            # 1. Liveness Detector: Anti-spoofing component
+            #    - Eye blink detection
+            #    - Head movement analysis
+            #    - Pose variation checking
             self.liveness_detector = LivenessDetector()
+            
+            # 2. Face Tracker: Maintains face state across frames
+            #    - Tracks face position using IoU
+            #    - Maintains recognition streak
+            #    - Handles face loss and timeout
             self.face_tracker = FaceTracker()
+            
+            # 3. Door Manager: High-level door control
+            #    - Manages door state
+            #    - Handles access control logic
             self.door_manager = DoorManager(self.door_controller)
 
-            # Kamera başlatma
+            # Initialize camera with specified width
+            # - FRAME_WIDTH: Width of captured frames
+            # - PROCESS_WIDTH: Width for face processing (smaller for performance)
             self.cap = self.camera_manager.init_camera(width=FRAME_WIDTH)
             if not self.cap:
                 raise Exception("Camera initialization failed")
 
-            # --- Durum Değişkenleri ---
-            self.current_mode = "normal"
-            self.input_text = ""
-            self.frame_counter = 0
+            # System state variables
+            self.current_mode = "normal"  # Current system mode (normal/register/delete)
+            self.input_text = ""  # User input text
+            self.frame_counter = 0  # Frame counter for timing
 
-            # Tanıma/Stabilite
-            self.candidate_name = None
-            self.recognition_streak_count = 0
-            self.stable_match_name = None
-            self.last_known_rect = None
-            self.last_processed_landmarks = None
-            self.scale_factor = 1.0
-            self.last_detection_time = 0
-            self.current_process_frame_size = (0, 0) # (H, W)
+            # Face recognition state
+            self.candidate_name = None  # Current best match
+            self.recognition_streak_count = 0  # Consecutive frames with same match
+            self.stable_match_name = None  # Confirmed identity
+            self.last_known_rect = None  # Last known face position
+            self.last_processed_landmarks = None  # Last detected landmarks
+            self.scale_factor = 1.0  # Scale between original and processed frame
+            self.last_detection_time = 0  # Timestamp of last detection
+            self.current_process_frame_size = (0, 0)  # Size of processed frame
 
-            # Canlılık Değişkenleri (Blink, Centroid, Pose Var, Look L/R)
-            self.liveness_passed = False
-            self.ear_consec_counter = 0
-            self.liveness_check_frame_counter = 0
-            self.blinks_detected_count = 0
-            self.centroid_history = collections.deque(maxlen=HEAD_MOVEMENT_FRAMES)
-            self.head_movement_ok = None # True, False, None
-            self.pose_history = collections.deque(maxlen=POSE_HISTORY_FRAMES)
-            self.head_pose_variation_ok = None # Genel poz değişimi (True, False, None)
-            self.initial_yaw = None        # YENİ: Canlılık başladığındaki Yaw açısı
-            self.looked_left = False       # YENİ: Yeterince sola bakıldı mı?
-            self.looked_right = False      # YENİ: Yeterince sağa bakıldı mı?
+            # Liveness detection state
+            self.liveness_passed = False  # Liveness check status
+            self.ear_consec_counter = 0  # Consecutive frames with low EAR
+            self.liveness_check_frame_counter = 0  # Frame counter for liveness
+            self.blinks_detected_count = 0  # Number of detected blinks
+            self.centroid_history = collections.deque(maxlen=HEAD_MOVEMENT_FRAMES)  # Head movement history
+            self.head_movement_ok = None  # Head movement check status
+            self.pose_history = collections.deque(maxlen=POSE_HISTORY_FRAMES)  # Pose history
+            self.head_pose_variation_ok = None  # Pose variation check status
+            self.initial_yaw = None  # Initial head yaw angle
+            self.looked_left = False  # Left look check
+            self.looked_right = False  # Right look check
 
-            # Kapı Durumu
-            self.door_opened_time = None
+            # Door state
+            self.door_opened_time = None  # Timestamp of last door open
 
-            # UI Durum Sözlüğü
+            # System status dictionary
             self.system_status = {
-                "status": "Waiting for Face",
-                "color": COLOR_BLUE,
-                "liveness": "Waiting for Face",
-                "liveness_color": COLOR_WHITE,
-                "action_handler": self.handle_ui_action
+                "status": "Waiting for Face",  # Current system status
+                "color": COLOR_BLUE,  # Status color
+                "liveness": "Waiting for Face",  # Liveness status
+                "liveness_color": COLOR_WHITE,  # Liveness status color
+                "action_handler": self.handle_ui_action  # UI action handler
             }
 
             self.initialized_successfully = True
@@ -133,22 +186,69 @@ class DoorSecuritySystem:
         self.door_manager.update_status("Waiting for Face", COLOR_BLUE)
 
     def _process_frame(self, frame):
-        """Process incoming frame."""
+        """
+        Process incoming frame for face detection and recognition.
+        
+        Process:
+        1. Resize frame for processing
+        2. Convert to grayscale
+        3. Apply scale factor for face detection
+        
+        Args:
+            frame: Original BGR frame from camera
+            
+        Returns:
+            tuple: (process_frame, gray_frame)
+            - process_frame: Resized frame for processing
+            - gray_frame: Grayscale version for face detection
+        """
         try:
+            # Get original frame dimensions
             orig_h, orig_w = frame.shape[:2]
+            
+            # Calculate scale factor for processing
             self.face_tracker.scale_factor = PROCESS_WIDTH / orig_w
+            
+            # Calculate new height maintaining aspect ratio
             process_height = int(orig_h * self.face_tracker.scale_factor)
+            
+            # Update processing frame size
             self.face_tracker.current_process_frame_size = (process_height, PROCESS_WIDTH)
-            process_frame = cv2.resize(frame, (PROCESS_WIDTH, process_height), interpolation=cv2.INTER_AREA)
+            
+            # Resize frame for processing
+            process_frame = cv2.resize(frame, (PROCESS_WIDTH, process_height), 
+                                     interpolation=cv2.INTER_AREA)
+            
+            # Convert to grayscale for face detection
             gray_frame = cv2.cvtColor(process_frame, cv2.COLOR_BGR2GRAY)
+            
             return process_frame, gray_frame
         except Exception as e:
             logging.error(f"Frame processing error: {e}")
             return None, None
 
     def _detect_and_process_face(self, gray_frame, process_frame):
-        """Detect and process a face in the frame."""
+        """
+        Detect and process a face in the frame.
+        
+        Process:
+        1. Detect faces using HOG detector
+        2. Get facial landmarks
+        3. Compute face descriptor
+        4. Convert coordinates to display scale
+        
+        Args:
+            gray_frame: Grayscale frame for face detection
+            process_frame: Color frame for descriptor computation
+            
+        Returns:
+            tuple: (display_rect, landmarks, face_descriptor)
+            - display_rect: Face rectangle in display coordinates
+            - landmarks: 68 facial landmarks
+            - face_descriptor: 128D face descriptor
+        """
         try:
+            # Detect faces in grayscale frame
             detected_faces = self.face_processor.detect_faces(gray_frame)
             if not detected_faces:
                 return None, None, None
@@ -181,32 +281,64 @@ class DoorSecuritySystem:
             return None, None, None
 
     def _update_liveness(self, landmarks):
-        """Update liveness detection state."""
+        """
+        Update liveness detection state based on facial landmarks.
+        
+        Process:
+        1. Check if in normal mode and landmarks are available
+        2. Update EAR-based liveness (eye blink detection)
+        3. Update centroid-based liveness (head movement)
+        4. Update pose-based liveness (head rotation)
+        5. Check overall liveness status
+        6. Update system status and door state
+        
+        Args:
+            landmarks: 68 facial landmarks from dlib
+            
+        Side Effects:
+            - Updates liveness detector state
+            - Updates system status
+            - Updates door manager state
+        """
         if not (self.current_mode == "normal" and landmarks is not None):
             return
 
-        # Update EAR-based liveness
+        # 1. Update EAR-based liveness
+        # - EAR (Eye Aspect Ratio) measures eye openness
+        # - Low EAR indicates closed eyes (blink)
+        # - Consecutive low EAR frames indicate valid blink
         ear_value = self.face_processor.check_liveness_ear(landmarks)
         self.liveness_detector.update_ear(ear_value)
 
-        # Update centroid-based liveness
+        # 2. Update centroid-based liveness
+        # - Calculate face centroid from landmarks
+        # - Track centroid movement over time
+        # - Check if movement is within valid range
         centroid = self.face_processor.get_face_centroid(landmarks)
-        hm_check_result = self.face_processor.check_liveness_head_movement(self.liveness_detector.centroid_history)
+        hm_check_result = self.face_processor.check_liveness_head_movement(
+            self.liveness_detector.centroid_history)
         self.liveness_detector.update_centroid(centroid, hm_check_result)
 
-        # Update pose-based liveness
-        pose_angles = self.face_processor.get_head_pose_angles(landmarks, self.face_tracker.current_process_frame_size)
+        # 3. Update pose-based liveness
+        # - Calculate head pose angles (pitch, yaw, roll)
+        # - Track pose variation over time
+        # - Check for valid head rotations
+        pose_angles = self.face_processor.get_head_pose_angles(
+            landmarks, self.face_tracker.current_process_frame_size)
         current_yaw = pose_angles[1] if pose_angles else None
-        pv_check_result = self.face_processor.check_liveness_pose_variation(self.liveness_detector.pose_history)
+        pv_check_result = self.face_processor.check_liveness_pose_variation(
+            self.liveness_detector.pose_history)
         self.liveness_detector.update_pose(pose_angles, pv_check_result, current_yaw)
 
-        # Check liveness status
+        # 4. Check overall liveness status
+        # - Combines results from all liveness checks
+        # - Updates system status based on result
         liveness_passed, liveness_data = self.liveness_detector.check_liveness()
         
-        # Update interface with liveness data
+        # 5. Update interface with liveness data
         self.interface.update_liveness(liveness_data)
         
-        # Update system status based on liveness
+        # 6. Update system status based on liveness
         if liveness_passed:
             self.system_status["status"] = f"Liveness passed for {self.face_tracker.stable_match_name}"
             self.system_status["color"] = COLOR_GREEN
@@ -217,13 +349,15 @@ class DoorSecuritySystem:
             self.system_status["status"] = f"Liveness expired for {self.face_tracker.stable_match_name}"
             self.system_status["color"] = COLOR_RED
 
+        # 7. Increment frame counter for timing
         self.liveness_detector.increment_frame_counter()
 
-        # Update door manager status
-        self.door_manager.update_status(liveness_data.get("status", "unknown"), 
-                                      self.interface.liveness_color)
+        # 8. Update door manager status
+        self.door_manager.update_status(
+            liveness_data.get("status", "unknown"), 
+            self.interface.liveness_color)
 
-        # If liveness passed, update door state
+        # 9. Update door state if liveness passed
         if liveness_passed and self.face_tracker.stable_match_name:
             logging.info(f"Liveness passed for {self.face_tracker.stable_match_name}")
             self.door_manager.update_door_state(
@@ -234,14 +368,30 @@ class DoorSecuritySystem:
             )
 
     def _draw_frame_elements(self, display_frame):
-        """Draw UI elements on the frame."""
+        """
+        Draw UI elements and face information on the display frame.
+        
+        Process:
+        1. Draw face rectangle if face is detected
+        2. Calculate recognition percentage
+        3. Draw debug information
+        4. Update UI with system status
+        
+        Args:
+            display_frame: Frame to draw on
+            
+        Side Effects:
+            - Updates display frame with visual elements
+            - Updates UI status
+        """
         if self.face_tracker.last_known_rect:
+            # 1. Get face rectangle coordinates
             x1, y1, x2, y2 = (self.face_tracker.last_known_rect.left(),
                              self.face_tracker.last_known_rect.top(),
                              self.face_tracker.last_known_rect.right(),
                              self.face_tracker.last_known_rect.bottom())
             
-            # Get current recognition percentage
+            # 2. Calculate current recognition percentage
             best_match_name = None
             best_match_percentage = 0.0
             if self.face_tracker.candidate_name:
@@ -255,14 +405,14 @@ class DoorSecuritySystem:
                         best_match_name = name
                         break
 
-            # Draw face rectangle
+            # 3. Draw face rectangle with appropriate color
             color = COLOR_GREEN if self.liveness_detector.liveness_passed else COLOR_YELLOW
             cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
 
-            # Prepare debug information
+            # 4. Prepare debug information
             debug_info = {}
             
-            # Recognition info
+            # 5. Add recognition info to debug display
             if self.face_tracker.stable_match_name:
                 debug_info["Name"] = f"{self.face_tracker.stable_match_name} ({best_match_percentage:.1f}%)"
             elif self.face_tracker.candidate_name:
@@ -270,8 +420,7 @@ class DoorSecuritySystem:
             else:
                 debug_info["Name"] = "Unknown"
 
-
-            # Draw debug information
+            # 6. Draw debug information on frame
             y_offset = y1 - 10
             for key, value in debug_info.items():
                 cv2.putText(display_frame, f"{key}: {value}", (x1, y_offset),
@@ -279,8 +428,10 @@ class DoorSecuritySystem:
                 y_offset += 30
 
         try:
+            # 7. Get list of known faces for UI
             known_names = list(self.storage.get_known_faces().keys())
-            # Combine system status with door manager status
+            
+            # 8. Prepare system status for UI
             system_status = {
                 "status": self.system_status["status"],
                 "color": self.system_status["color"],
@@ -289,13 +440,36 @@ class DoorSecuritySystem:
                 "action_handler": self.handle_ui_action,
                 "door_remaining_time": self.door_manager.system_status["door_remaining_time"]
             }
-            self.interface.draw_ui(display_frame, self.current_mode, self.input_text, known_names, system_status)
+            
+            # 9. Draw UI elements
+            self.interface.draw_ui(display_frame, self.current_mode, 
+                                 self.input_text, known_names, system_status)
         except Exception as e:
             logging.error(f"UI drawing error: {e}")
             traceback.print_exc()
 
     def run(self):
-        """Main application loop."""
+        """
+        Main application loop that handles the entire face recognition system.
+        
+        Process:
+        1. Initialize system and check prerequisites
+        2. Create OpenCV window and set up mouse callback
+        3. Main processing loop:
+           - Capture and process frames
+           - Detect and recognize faces
+           - Update liveness detection
+           - Handle user input
+           - Update UI
+        4. Clean up resources on exit
+        
+        Side Effects:
+            - Creates and manages OpenCV window
+            - Updates system state continuously
+            - Handles user input and mode changes
+            - Controls door access
+        """
+        # 1. Check system initialization
         if not self.initialized_successfully:
             logging.error("System not initialized, cannot run")
             return
@@ -303,6 +477,7 @@ class DoorSecuritySystem:
             logging.error("Camera not available or cannot be opened")
             return
 
+        # 2. Create OpenCV window
         window_name = "Face Security System v3.0"
         try:
             cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
@@ -311,61 +486,72 @@ class DoorSecuritySystem:
             logging.error(f"OpenCV window creation failed: {e}")
             return
 
+        # 3. Initialize system state
         self.running = True
         logging.info("Main loop started. Press 'q' to quit")
         self.handle_ui_action("set_mode", "normal")
 
-        # Add state tracking variables
+        # 4. Initialize status tracking
         last_status = None
         status_update_time = time.time()
-        min_status_update_interval = 0.5
+        min_status_update_interval = 0.5  # Minimum time between status updates
 
+        # 5. Main processing loop
         while self.running:
             try:
+                # 5.1 Capture frame from camera
                 ret, frame = self.cap.read()
                 if not ret or frame is None:
                     logging.warning("Failed to get frame from camera, waiting...")
                     time.sleep(0.1)
                     continue
 
+                # 5.2 Prepare display frame
                 display_frame = frame.copy()
                 self.frame_counter += 1
 
+                # 5.3 Process frame for face detection
                 process_frame, gray_frame = self._process_frame(frame)
                 if process_frame is None or gray_frame is None:
                     continue
 
-                # Detect and process face
-                face_rect, landmarks, face_descriptor = self._detect_and_process_face(gray_frame, process_frame)
+                # 5.4 Detect and process face
+                face_rect, landmarks, face_descriptor = self._detect_and_process_face(
+                    gray_frame, process_frame)
                 current_time = time.time()
 
+                # 5.5 Handle face recognition in normal mode
                 if self.current_mode == "normal":
                     if face_rect is not None and landmarks is not None and face_descriptor is not None:
-                        # Update face tracking
+                        # 5.5.1 Update face tracking
                         if not self.face_tracker.update_tracking(face_rect):
                             logging.warning("Face tracking lost")
                             self.face_tracker.reset()
                             self.liveness_detector.reset()
                             continue
 
-                        # Update face recognition
+                        # 5.5.2 Update face recognition
                         if face_descriptor is not None:
-                            # Get current recognition percentage
+                            # Find best matching face
                             best_match_name = None
                             best_match_percentage = 0.0
                             for name, known_descriptor in self.storage.get_known_faces().items():
-                                percentage = self.face_processor.compare_faces(face_descriptor, known_descriptor)
+                                percentage = self.face_processor.compare_faces(
+                                    face_descriptor, known_descriptor)
                                 if percentage > best_match_percentage:
                                     best_match_percentage = percentage
                                     best_match_name = name
 
                             # Update recognition status
                             if best_match_percentage > 45.0:
-                                self.face_tracker.update_recognition(face_descriptor, self.storage.get_known_faces(), self.face_processor)
+                                self.face_tracker.update_recognition(
+                                    face_descriptor, 
+                                    self.storage.get_known_faces(), 
+                                    self.face_processor)
+                                
                                 if self.face_tracker.stable_match_name:
                                     self.system_status["status"] = f"Recognized: {self.face_tracker.stable_match_name}"
                                     self.system_status["color"] = COLOR_GREEN
-                                    # Start liveness check if not already checking
                                     if not self.liveness_detector.is_checking:
                                         self.liveness_detector.start_checking()
                                 else:
@@ -375,7 +561,7 @@ class DoorSecuritySystem:
                                 self.system_status["status"] = f"No match found ({best_match_percentage:.1f}%)"
                                 self.system_status["color"] = COLOR_RED
 
-                        # Update liveness detection
+                        # 5.5.3 Update liveness detection
                         self._update_liveness(landmarks)
 
                     else:
@@ -403,13 +589,17 @@ class DoorSecuritySystem:
                     # Only update UI if status has changed or enough time has passed
                     if (self.system_status["status"] != last_status or 
                         current_time - status_update_time >= min_status_update_interval):
-                        self.interface.update_status(self.system_status["status"], self.system_status["color"])
+                        self.interface.update_status(
+                            self.system_status["status"], 
+                            self.system_status["color"])
                         last_status = self.system_status["status"]
                         status_update_time = current_time
 
+                # 5.6 Draw UI elements
                 self._draw_frame_elements(display_frame)
                 cv2.imshow(window_name, display_frame)
 
+                # 5.7 Handle keyboard input
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
                     if self.current_mode == "normal":
@@ -433,15 +623,48 @@ class DoorSecuritySystem:
                 logging.exception(f"Unexpected error in main loop: {loop_err}")
                 time.sleep(1)
 
+        # 6. Clean up resources
         self._cleanup()
 
     def handle_mouse_event(self, event, x, y, flags, param):
-        """Fare olaylarını (sol tıklama) işler ve arayüze iletir."""
+        """
+        Handle mouse events in the OpenCV window.
+        
+        Process:
+        1. Check for left mouse button click
+        2. Forward click coordinates to UI handler
+        
+        Args:
+            event: OpenCV mouse event type
+            x: X coordinate of mouse click
+            y: Y coordinate of mouse click
+            flags: Additional event flags
+            param: Additional parameters
+            
+        Side Effects:
+            - Updates UI based on click location
+            - May trigger mode changes or face selection
+        """
         if event == cv2.EVENT_LBUTTONDOWN:
             self.interface.handle_click(x, y)
 
     def _handle_text_input(self, key):
-        """Handle text input in register and delete modes."""
+        """
+        Handle text input in register and delete modes.
+        
+        Process:
+        1. Handle special keys (ESC, Enter, Backspace)
+        2. Handle printable characters
+        3. Update input text and UI
+        
+        Args:
+            key: ASCII value of pressed key
+            
+        Side Effects:
+            - Updates input text
+            - Updates UI messages
+            - May trigger face registration or deletion
+        """
         if key == 27:  # ESC
             self.handle_ui_action("set_mode", "normal")
         elif key == 13:  # Enter
@@ -456,26 +679,50 @@ class DoorSecuritySystem:
                 self.interface.set_message("Maximum name length!", COLOR_YELLOW, duration=2.0)
 
     def _register_face(self, name):
-        """Register a new face."""
+        """
+        Register a new face in the system.
+        
+        Process:
+        1. Validate input and mode
+        2. Capture and process frame
+        3. Detect and validate face
+        4. Extract landmarks and descriptor
+        5. Store in database
+        
+        Args:
+            name: Name to associate with the face
+            
+        Returns:
+            None
+            
+        Side Effects:
+            - Updates face database
+            - Updates UI status
+            - Changes system mode
+        """
         if self.current_mode != "register":
             logging.warning("Face registration only available in register mode")
             return
 
+        # 1. Validate input name
         name = name.strip()
         if not name:
             self.interface.set_message("Please enter a valid name!", COLOR_RED)
             return
 
+        # 2. Capture frame from camera
         ret, frame = self.cap.read()
         if not ret or frame is None:
             self.interface.set_message("Registration: Failed to get camera frame!", COLOR_RED)
             return
 
+        # 3. Process frame for face detection
         process_frame, gray_frame = self._process_frame(frame)
         if process_frame is None or gray_frame is None:
             self.interface.set_message("Registration: Frame processing failed!", COLOR_RED)
             return
 
+        # 4. Detect faces
         faces = self.face_processor.detect_faces(gray_frame)
         if not faces:
             self.interface.set_message("Registration: No face detected!", COLOR_RED)
@@ -484,16 +731,19 @@ class DoorSecuritySystem:
             self.interface.set_message("Registration: Only one face allowed!", COLOR_RED)
             return
 
+        # 5. Get facial landmarks
         landmarks = self.face_processor.get_landmarks(gray_frame, faces[0])
         if not landmarks:
             self.interface.set_message("Registration: Failed to get landmarks!", COLOR_RED)
             return
 
+        # 6. Compute face descriptor
         descriptor = self.face_processor.get_face_descriptor(process_frame, landmarks)
         if descriptor is None:
             self.interface.set_message("Registration: Failed to compute descriptor!", COLOR_RED)
             return
 
+        # 7. Store face in database
         if self.storage.add_face(name, descriptor):
             self.interface.set_message(f"'{name}' successfully registered!", COLOR_GREEN, duration=5.0)
             self.handle_ui_action("set_mode", "normal")
@@ -501,7 +751,25 @@ class DoorSecuritySystem:
             self.interface.set_message(f"Failed to register '{name}'!", COLOR_RED)
 
     def _delete_face(self, name):
-        """Delete a registered face."""
+        """
+        Delete a registered face from the system.
+        
+        Process:
+        1. Validate input and mode
+        2. Remove face from database
+        3. Update UI and system state
+        
+        Args:
+            name: Name of the face to delete
+            
+        Returns:
+            None
+            
+        Side Effects:
+            - Updates face database
+            - Updates UI status
+            - Resets selection state
+        """
         if self.current_mode != "delete":
             logging.warning("Face deletion only available in delete mode")
             return
@@ -509,6 +777,7 @@ class DoorSecuritySystem:
             self.interface.set_message("Please select a name to delete!", COLOR_RED)
             return
 
+        # 1. Remove face from database
         if self.storage.delete_face(name):
             self.interface.set_message(f"'{name}' successfully deleted.", COLOR_GREEN)
             self.interface.selected_name_for_delete = None
@@ -517,11 +786,26 @@ class DoorSecuritySystem:
             self.interface.set_message(f"Failed to delete '{name}'!", COLOR_RED)
 
     def _cleanup(self):
-        """Clean up system resources."""
+        """
+        Clean up system resources and shut down components.
+        
+        Process:
+        1. Stop main loop
+        2. Release camera
+        3. Close OpenCV windows
+        4. Clean up door manager
+        5. Log cleanup completion
+        
+        Side Effects:
+            - Releases hardware resources
+            - Closes windows and connections
+            - Resets system state
+        """
         logging.info("Starting cleanup...")
         self.running = False
         time.sleep(0.1)
 
+        # 1. Release camera
         if hasattr(self, 'cap') and self.cap and self.cap.isOpened():
             try:
                 self.cap.release()
@@ -530,12 +814,14 @@ class DoorSecuritySystem:
                 logging.warning(f"Camera release error: {e}")
         self.cap = None
 
+        # 2. Close OpenCV windows
         try:
             cv2.destroyAllWindows()
             logging.info("OpenCV windows closed")
         except Exception as e:
             logging.warning(f"OpenCV window closing error: {e}")
 
+        # 3. Clean up door manager
         self.door_manager.cleanup()
         logging.info("Cleanup completed")
 

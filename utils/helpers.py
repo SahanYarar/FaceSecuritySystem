@@ -9,12 +9,19 @@ def shape_to_np(shape, dtype="int"):
     """
     Convert a dlib shape object to a numpy array.
     
+    Process:
+    1. Extract (x,y) coordinates from dlib shape object
+    2. Convert to numpy array for easier manipulation
+    3. Handle None input gracefully
+    
     Args:
         shape: dlib shape object containing facial landmarks
         dtype: data type for the output array (default: int)
     
     Returns:
         numpy.ndarray: Array of (x, y) coordinates
+        - Shape: (68, 2) for 68 facial landmarks
+        - Each row contains (x, y) coordinates of a landmark
     """
     if shape is None:
         return np.zeros((0, 2), dtype=dtype)
@@ -37,30 +44,6 @@ def handle_error(error_msg, return_value=None, log_level=logging.ERROR):
     """
     logging.log(log_level, f"{error_msg}\n{traceback.format_exc()}")
     return return_value
-
-def eye_aspect_ratio(eye_landmarks):
-    """
-    Calculate the eye aspect ratio given eye landmarks.
-    
-    Args:
-        eye_landmarks: Array of 6 (x, y) coordinates of facial landmarks for the eye
-    
-    Returns:
-        float: The eye aspect ratio
-    """
-    try:
-        # Compute the euclidean distances between the vertical eye landmarks
-        A = euclidean(eye_landmarks[1], eye_landmarks[5])
-        B = euclidean(eye_landmarks[2], eye_landmarks[4])
-        
-        # Compute the euclidean distance between the horizontal eye landmarks
-        C = euclidean(eye_landmarks[0], eye_landmarks[3])
-        
-        # Calculate the eye aspect ratio
-        ear = (A + B) / (2.0 * C)
-        return ear
-    except Exception as e:
-        return handle_error(f"Error calculating eye aspect ratio: {str(e)}", 0.0)
 
 def calculate_iou(box1, box2):
     """
@@ -129,11 +112,24 @@ def calculate_head_pose(landmarks):
     """
     Calculate approximate head pose angles from facial landmarks.
     
+    Process:
+    1. Calculate nose tip to center distance
+    2. Calculate eye center positions
+    3. Estimate yaw from nose deviation
+    4. Estimate pitch from vertical nose position
+    5. Estimate roll from eye angle
+    
     Args:
         landmarks: Array of (x, y) coordinates of facial landmarks
+        - Point 30: Nose tip
+        - Point 27: Nose bridge
+        - Points 36-45: Eye landmarks
     
     Returns:
         tuple: (pitch, yaw, roll) angles in degrees
+        - pitch: Up/down rotation (-90 to 90)
+        - yaw: Left/right rotation (-90 to 90)
+        - roll: Tilt rotation (-90 to 90)
     """
     try:
         # Calculate nose tip to center distance

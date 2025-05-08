@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import dlib
 import math
-from utils.helpers import handle_error, eye_aspect_ratio, shape_to_np
+from utils.helpers import handle_error, shape_to_np
 from common.constants import (
     SHAPE_PREDICTOR_PATH, FACE_REC_MODEL_PATH, RECOG_DIST_THRESH,
     EAR_THRESHOLD, EAR_CONSEC_FRAMES, REQUIRED_BLINKS,
@@ -14,77 +14,161 @@ from common.constants import (
 )
 
 class FaceProcessor:
-    """Yüz algılama, landmark, tanıma ve canlılık (EAR, Centroid, Pose) işlemlerini yönetir."""
+    """
+    Face processing system that handles:
+    1. Face Detection: Using dlib's HOG-based detector
+    2. Landmark Detection: 68-point facial landmark detection
+    3. Face Recognition: 128D face descriptor computation
+    4. Liveness Detection: Using EAR, head movement, and pose analysis
+    """
     def __init__(self):
         try:
-            logging.info("Dlib modelleri yükleniyor...")
+            # Initialize dlib's face detection and recognition models
+            # 1. Face Detector: Uses Histogram of Oriented Gradients (HOG) features
+            #    - Processes grayscale images
+            #    - Returns bounding boxes (dlib.rectangle) for detected faces
+            #    - 0 upsampling means faster detection but might miss smaller faces
             self.detector = dlib.get_frontal_face_detector() # type: ignore
+            
+            # 2. Shape Predictor: 68-point facial landmark detector
+            #    - Points 0-16: Jawline
+            #    - Points 17-21: Left eyebrow
+            #    - Points 22-26: Right eyebrow
+            #    - Points 27-30: Nose bridge
+            #    - Points 31-35: Nose bottom
+            #    - Points 36-41: Left eye
+            #    - Points 42-47: Right eye
+            #    - Points 48-59: Outer lip
+            #    - Points 60-67: Inner lip
             self.shape_predictor = dlib.shape_predictor(SHAPE_PREDICTOR_PATH) # type: ignore
+            
+            # 3. Face Recognition Model: Creates 128D face descriptors
+            #    - Uses deep learning to extract facial features
+            #    - Normalizes features to create unique face representation
+            #    - Descriptor is a 128-dimensional vector
             self.recognizer = dlib.face_recognition_model_v1(FACE_REC_MODEL_PATH) # type: ignore
+            
+            # Distance threshold for face recognition
+            # - Lower threshold = more strict matching
+            # - Higher threshold = more lenient matching
             self.distance_threshold = RECOG_DIST_THRESH
-            logging.info(f"Dlib modelleri yüklendi. Mesafe Eşiği: {self.distance_threshold:.4f}")
+            logging.info(f"Dlib models loaded. Distance Threshold: {self.distance_threshold:.4f}")
         except Exception as e:
-            handle_error(f"Dlib modelleri yüklenirken kritik hata: {e}", "Model Yükleme")
-            handle_error("Model dosyalarının doğru yolda olduğundan emin olun!", "Model Yükleme")
-            raise # Programın devam etmemesi için hatayı tekrar fırlat
+            handle_error(f"Critical error loading dlib models: {e}", "Model Loading")
+            handle_error("Please ensure model files are in the correct path!", "Model Loading")
+            raise
 
-        # Göz landmark indisleri
+        # Eye landmark indices for EAR (Eye Aspect Ratio) calculation
+        # - Left eye: points 42-47
+        # - Right eye: points 36-41
         (self.l_start, self.l_end) = (42, 48)
         (self.r_start, self.r_end) = (36, 42)
 
-        # Kafa pozu için 3B model noktaları
+        # 3D model points for head pose estimation
+        # - Used in solvePnP for calculating head rotation
+        # - Points correspond to key facial landmarks
         self.model_points_3d = np.array([
-            (0.0, 0.0, 0.0),             # Nose tip 30
-            (0.0, -330.0, -65.0),        # Chin 8
-            (-225.0, 170.0, -135.0),     # Left eye corner 36
-            (225.0, 170.0, -135.0),      # Right eye corner 45
-            (-150.0, -150.0, -125.0),    # Left Mouth corner 48
-            (150.0, -150.0, -125.0)      # Right mouth corner 54
+            (0.0, 0.0, 0.0),             # Nose tip (point 30)
+            (0.0, -330.0, -65.0),        # Chin (point 8)
+            (-225.0, 170.0, -135.0),     # Left eye corner (point 36)
+            (225.0, 170.0, -135.0),      # Right eye corner (point 45)
+            (-150.0, -150.0, -125.0),    # Left mouth corner (point 48)
+            (150.0, -150.0, -125.0)      # Right mouth corner (point 54)
         ], dtype=np.float64)
 
     def detect_faces(self, gray_frame):
-        """Gri tonlamalı karede yüzleri algılar."""
+        """
+        Detect faces in a grayscale frame using dlib's HOG-based detector.
+        
+        Args:
+            gray_frame: Grayscale image (single channel)
+            
+        Returns:
+            List of dlib.rectangle objects, each representing a detected face
+            Each rectangle has:
+            - left(): x-coordinate of left edge
+            - top(): y-coordinate of top edge
+            - right(): x-coordinate of right edge
+            - bottom(): y-coordinate of bottom edge
+        """
         try:
-            # 0: no upsampling (faster), 1: upsample once (detects smaller faces, slower)
+            # 0: no upsampling (faster)
+            # 1: upsample once (detects smaller faces, slower)
             return self.detector(gray_frame, 0)
         except Exception as e:
-            return handle_error(f"Yüz algılama hatası: {e}", "Yüz Algılama", [])
+            return handle_error(f"Face detection error: {e}", "Face Detection", [])
 
     def get_landmarks(self, gray_frame, face_rect):
-        """Verilen yüz dikdörtgeni için 68 landmark noktasını bulur."""
+        """
+        Extract 68 facial landmarks for a detected face.
+        
+        Args:
+            gray_frame: Grayscale image
+            face_rect: dlib.rectangle object defining face region
+            
+        Returns:
+            dlib.full_object_detection object containing 68 (x,y) coordinates
+            representing facial landmarks
+        """
         try:
             return self.shape_predictor(gray_frame, face_rect)
         except Exception as e:
-            return handle_error(f"Landmark alınamadı: {e}", "Landmark Alma", None)
+            return handle_error(f"Failed to get landmarks: {e}", "Landmark Detection", None)
 
     def get_face_descriptor(self, frame, landmarks):
-        """Verilen yüz ve landmarklar için 128D yüz tanımlayıcı vektörünü hesaplar."""
+        """
+        Compute a 128-dimensional face descriptor for face recognition.
+        
+        Args:
+            frame: Original BGR image
+            landmarks: 68 facial landmarks
+            
+        Returns:
+            numpy.ndarray: 128D face descriptor vector
+            - Created by:
+              1. Face alignment using landmarks
+              2. Deep feature extraction
+              3. Feature normalization
+        """
         if landmarks is None:
             return None
         try:
+            # 1: Use more accurate but slower version
             return np.array(self.recognizer.compute_face_descriptor(frame, landmarks, 1))
         except Exception as e:
-            return handle_error(f"Face descriptor alınamadı: {e}", "Descriptor Hesaplama", None)
+            return handle_error(f"Failed to compute face descriptor: {e}", "Descriptor Computation", None)
 
     def identify_face(self, face_descriptor, known_faces_db):
-        """Descriptor'ı bilinen yüzlerle karşılaştırır."""
+        """
+        Compare a face descriptor with known faces in the database.
+        
+        Args:
+            face_descriptor: 128D vector of the face to identify
+            known_faces_db: Dictionary of {name: descriptor} pairs
+            
+        Returns:
+            tuple: (best_match_name, confidence_percentage)
+            - confidence_percentage: 0-100, higher means more confident match
+        """
         if face_descriptor is None or not known_faces_db:
             return None, 0.0
         min_dist = float('inf')
         best_match = None
         for name, known_descriptor in known_faces_db.items():
             if known_descriptor is None or not isinstance(known_descriptor, np.ndarray) or known_descriptor.shape != (128,):
-                logging.warning(f"Identify: '{name}' için geçersiz descriptor, atlanıyor.")
+                logging.warning(f"Identify: Invalid descriptor for '{name}', skipping.")
                 continue
             try:
+                # Calculate Euclidean distance between descriptors
                 d = np.linalg.norm(face_descriptor - known_descriptor)
                 if d < min_dist:
                     min_dist = d
                     best_match = name
             except Exception as e:
-                logging.error(f"Identify: '{name}' ile mesafe hesaplama hatası: {e}")
+                logging.error(f"Identify: Error calculating distance for '{name}': {e}")
 
         if best_match and min_dist <= self.distance_threshold:
+            # Convert distance to confidence percentage
             confidence = max(0.0, (self.distance_threshold - min_dist) / self.distance_threshold) * 100
             return best_match, confidence
         else:
